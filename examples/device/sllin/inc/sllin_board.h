@@ -28,6 +28,33 @@
 
 #define SLLIN_NAME "slLIN"
 
+enum {
+	AUTOSAR_E2E_PROFILE_NONE, // not AUTOSAR E2E
+	AUTOSAR_E2E_PROFILE_11,
+	AUTOSAR_E2E_PROFILE_22,
+};
+
+typedef struct sllin_autosar_e2e_conf {
+
+
+	union {
+		struct {
+			uint16_t data_id;
+			uint8_t crc_offset;
+			uint8_t counter_offset;
+			uint8_t data_id_nibble_offset;
+			uint8_t data_id_mode_both;
+			uint8_t counter;
+		} p11;
+		struct {
+			uint8_t crc_offset; // counter is in lower nibble of next byte
+			uint8_t data_ids[16];
+			uint8_t counter;
+		} p22;
+	} u;
+	uint8_t profile;
+} sllin_autosar_e2e_conf;
+
 typedef struct sllin_conf {
 	uint16_t bitrate;
 	uint16_t sleep_timeout_ms;
@@ -83,6 +110,7 @@ SLLIN_RAMFUNC extern void sllin_board_led_lin_status_set(uint8_t index, int stat
 SLLIN_RAMFUNC extern void sllin_lin_task_notify_def(uint8_t index, uint32_t count);
 SLLIN_RAMFUNC extern void sllin_lin_task_notify_isr(uint8_t index, uint32_t count);
 SLLIN_RAMFUNC extern void sllin_lin_task_queue(uint8_t index, sllin_queue_element const *element);
+SLLIN_RAMFUNC extern void sllin_lin_task_tx_complete(uint8_t index, uint8_t id);
 
 
 extern uint16_t _sllin_time_stamp_ms;
@@ -119,12 +147,15 @@ extern uint16_t _sllin_time_stamp_ms;
 
 
 struct sllin_frame_data {
+	uint64_t classic_crc_flags;
+	uint64_t enhanced_crc_flags;
 	__attribute__ ((aligned(4))) uint8_t data[64][8];
 	uint8_t len[64];
 	uint8_t crc[64];
+	sllin_autosar_e2e_conf e2e[64];
 };
 
-extern struct sllin_frame_data sllin_frame_data[SLLIN_BOARD_LIN_COUNT];
+extern struct sllin_frame_data frame_data[SLLIN_BOARD_LIN_COUNT];
 
 
 #include <FreeRTOSConfig.h>

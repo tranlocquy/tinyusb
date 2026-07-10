@@ -50,6 +50,46 @@ cangen slcan0  -x -R -I b -n 1
 
 To send a master request frame, first configure the frame data as you would for a response, then send the header.
 
+
+#### AUTOSAR E2E
+
+AUTOSAR E2E protection can be configured for each frame individually. Prior to slave transmission, counter and E2E CRC are updated in the payload and the CRC is recomputed.
+
+E2E is disabled by default. Find the details on AUTOSAR E2E projection [here](https://www.autosar.org/fileadmin/standards/R20-11/FO/AUTOSAR_PRS_E2EProtocol.pdf).
+
+_NOTE: the commands given below must be send over the serial line. See section on command side channel if you are using slcan._
+
+##### Enable Profile 11
+
+Enable profile 11 protection for LIN ID `0x0b`, E2E CRC offset (bits) 0, counter offset (bits) 8, data nibble offset (bits) 12 with mode 'both' and data ID `0xdead`:
+
+```text
+A E2E B P11 0 8 C BOTH DEAD\r
+```
+
+Same but for mode 'nibble':
+
+```text
+A E2E B P11 0 8 C NIBBLE DEAD\r
+```
+
+##### Enable Profile 2
+
+Enable profile 2 protection for LIN ID `0x0b`, E2E CRC offset (bits) 0 and data IDs 0-15:
+
+```text
+A E2E B P22 0 0 1 2 3 4 5 6 7 8 9 A B C D E F\r
+```
+
+
+##### Disable AUTOSAR E2E
+
+Disable AUTOSAR E2E for LIN ID `0x0b`. This is the default setting for each frame.
+
+```text
+A E2E B NONE\r
+```
+
 ## Serial Line CAN (slcan) Protocol
 
 The protocol for CAN is decribed [here](http://www.can232.com/docs/canusb_manual.pdf).
@@ -70,6 +110,10 @@ slLIN mostly follows Lawicel's protocol with a few modifications for LIN:
 | `shhhh\r`</br>(hex values)             | host to device | Set device baud rate, e.g  `4b00` sets 19200 Baud/s |
 | `Sn\r`                                 | host to device | Set sleep timeout in seconds, i.e. `S0` sets 4 seconds, `S1` 5 seconds... |
 | `v\r`                                  | both | Query firmware version |
+| `A E2E ID NONE\r`                         | host to device | Disable AUTOSAR E2E for LIN ID `ID` (hex) |
+| `A E2E ID P11 CRC COUNTER NIBBLE [NIBBLE\|BOTH] DATAID\r`                         | host to device | Enable AUTOSAR E2E profile 11 for LIN ID. Numbers in hex w/o prefix, offsets in bits. |
+| `A E2E ID P2 CRC DATAID0 ... DATAID15 \r`                         | host to device | Enable AUTOSAR E2E profile 22 for LIN ID. Numbers in hex w/o prefix, offsets in bits. |
+| `t000LDD...\r`                         | both | Command side channel over CAN. See own section for details. |
 
 
 ## Frame Coding
@@ -156,3 +200,54 @@ The protected identifier is computed by the device. The length part of the RTR f
 To send only the break BREAK field only send a RTR frame with an ID of `0x100`.
 
 To send a master request frame, store the target payload as response on the device, then send a header with the master request ID.
+
+## Command Side Channel (slcan on Linux)
+
+Because of the limitations imposed by Linux slcan, some commands may not be through the serial line interface. To access those command from Linux, use the CAN side channel (here `can0`). Note the device must already be registered as slcan CAN device and _up_.
+
+### Examples
+
+*AUTOSAR E2E*
+
+```sh
+# Enable AUTOSAR E2E profile 11 protection for LIN frame id `0x0b`
+gen-can-side-channel-commands.py "A E2E b P11 0 8 C NIBBLE dead"
+```
+
+Output should be something like this:
+
+```text
+cangen -x -n 1 -I 0 -L 8 -D 4120453245206220 can0
+cangen -x -n 1 -I 0 -L 8 -D 5031312030203820 can0
+cangen -x -n 1 -I 0 -L 8 -D 43204e4942424c45 can0
+cangen -x -n 1 -I 0 -L 5 -D 2064656164 can0
+```
+
+Then run those commands in the shell to activate the protection. The device will response with `\r` or `\b` over the CAN side channel:
+
+```text
+  can0  000   [1]  0D # side channel command suceeded
+  or
+  can0  000   [1]  07 # side channel command failed
+```
+
+*Firmware Version*
+
+Generate
+
+```sh
+gen-can-side-channel-commands.py "v"
+```
+
+Send
+
+```sh
+cangen -x -n 1 -I 0 -L 1 -D 76 can0
+```
+
+Receive
+
+```
+# v0.6.0
+can0  000   [7]  76 30 2E 36 2E 30 0D
+```

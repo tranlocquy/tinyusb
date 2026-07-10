@@ -614,7 +614,7 @@ SLLIN_RAMFUNC void sam_lin_usart_int(uint8_t index)
 	struct slave *sl = &lin->slave;
 	struct master *ma = &lin->master;
 	Sercom *s = lin->sercom;
-	struct sllin_frame_data const *fd = &sllin_frame_data[index];
+	struct sllin_frame_data const *fd = &frame_data[index];
 	uint8_t intflag = s->USART.INTFLAG.reg;
 	uint8_t status = s->USART.STATUS.reg;
 	const uint8_t BREAK_INT_FLAGS = SERCOM_USART_INTFLAG_RXC | SERCOM_USART_INTFLAG_ERROR;
@@ -767,6 +767,7 @@ SLLIN_RAMFUNC void sam_lin_usart_int(uint8_t index)
 			uint8_t len = 0;
 			uint8_t tx_byte = 0;
 			uint8_t id = 0;
+			bool tx_done = false;
 tx:
 			id = sl->elem.frame.id & 0x3f;
 			len = fd->len[id];
@@ -777,11 +778,15 @@ tx:
 				sl->slave_proto_step = SLAVE_PROTO_STEP_RX_DATA;
 				tx_byte = fd->crc[id];
 				s->USART.INTENCLR.reg = SERCOM_USART_INTENCLR_DRE;
+				tx_done = true;
 			}
 
 			s->USART.DATA.reg = tx_byte;
 
 			// LOG("ch%u TX=%x\n", index, tx_byte);
+			if (unlikely(tx_done)) {
+				sllin_lin_task_tx_complete(index, id);
+			}
 		}
 
 		goto rx;

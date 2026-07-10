@@ -20,10 +20,12 @@ enum {
 	SLLIN_ID_FLAG_LIN_ERROR_FORM =          0x00040000, //< bit error in some fixed part of the frame e.g. start bit wasn't zero, stop bit wasn't 1, ...
 	SLLIN_ID_FLAG_LIN_ERROR_TRAILING =      0x00080000, //< more than 8 byte plus checksum on bus
 	SLLIN_ID_FLAG_FRAME_FOREIGN =           0x00100000, //< foreign node answered this frame
+	SLLIN_ID_CMD_RESPONSE =                 0x00200000, //< alternatve command channel response
 
 	// host -> device, EFF data frame
 	SLLIN_ID_FLAG_FRAME_ENABLE =            0x00100000,
 	SLLIN_ID_FLAG_FRAME_STORE =             0x00200000,
+	SLLIN_ID_CMD_REQUEST =                  0x00400000, //< alternate command channel request
 	SLLIN_ID_FLAG_FRAME_CRC_COMP_SHIFT =    0x10,
 	SLLIN_ID_FLAG_FRAME_CRC_COMP_MASK =     0x03,
 	SLLIN_ID_FLAG_FRAME_CRC_COMP_NONE =     0x00,
@@ -41,7 +43,7 @@ enum {
 	SLLIN_ID_FLAG_BUS_STATE_ERROR =    0x02, //< bus is in error state
 
 	// bus error (permanent)
-	SLLIN_ID_FLAG_BUS_ERROR_FLAG =        	0x08000000, //< permanaent error on the bus
+	SLLIN_ID_FLAG_BUS_ERROR_FLAG =        	0x08000000, //< permanent error on the bus
 	SLLIN_ID_FLAG_BUS_ERROR_MASK =        	0x03, //<
 	SLLIN_ID_FLAG_BUS_ERROR_SHIFT =        	0x02, //<
 	SLLIN_ID_FLAG_BUS_ERROR_NONE =  	    0x00, //< no error
@@ -50,6 +52,9 @@ enum {
 
 	// host -> device, SFF RTR frame
 	SLLIN_ID_FLAG_BUS_BREAK = 0x100, //< send BREAK w/o SYNC, PID
+
+	// host <-> device, SFF CAN frame
+	SLLIN_SFF_CAN_ID_CMD_REQUEST_RESPONSE = 0x0, //< command side channel to bypass slcan Linux limitations on custom commands
 };
 
 

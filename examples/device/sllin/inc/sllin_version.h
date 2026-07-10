@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: MIT
  *
- * Copyright (c) 2021-2022 Jean Gressmann <jean@0x42.de>
+ * Copyright (c) 2021 Jean Gressmann <jean@0x42.de>
  *
  */
 
@@ -10,7 +10,7 @@
 #define SLLIN_STR(x) SLLIN_STR2(x)
 
 #define SLLIN_VERSION_MAJOR 0
-#define SLLIN_VERSION_MINOR 5
-#define SLLIN_VERSION_PATCH 1
+#define SLLIN_VERSION_MINOR 7
+#define SLLIN_VERSION_PATCH 0
 
 #define SLLIN_VERSION_STR SLLIN_STR(SLLIN_VERSION_MAJOR) "." SLLIN_STR(SLLIN_VERSION_MINOR) "." SLLIN_STR(SLLIN_VERSION_PATCH)
