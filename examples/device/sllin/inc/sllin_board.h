@@ -35,8 +35,6 @@ enum {
 };
 
 typedef struct sllin_autosar_e2e_conf {
-
-
 	union {
 		struct {
 			uint16_t data_id;
@@ -133,6 +131,10 @@ extern uint16_t _sllin_time_stamp_ms;
 #	define TRINKET_M0 0
 #endif
 
+#ifndef SLLIN_ENABLE_E2E
+#	define SLLIN_ENABLE_E2E 0
+#endif
+
 #if SAME54XPLAINEDPRO
 #	include "sllin_same54_xplained_pro.h"
 #elif D5035_50
@@ -152,7 +154,9 @@ struct sllin_frame_data {
 	__attribute__ ((aligned(4))) uint8_t data[64][8];
 	uint8_t len[64];
 	uint8_t crc[64];
+#if SLLIN_ENABLE_E2E
 	sllin_autosar_e2e_conf e2e[64];
+#endif
 };
 
 extern struct sllin_frame_data frame_data[SLLIN_BOARD_LIN_COUNT];

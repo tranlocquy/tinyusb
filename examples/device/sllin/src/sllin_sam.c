@@ -767,7 +767,9 @@ SLLIN_RAMFUNC void sam_lin_usart_int(uint8_t index)
 			uint8_t len = 0;
 			uint8_t tx_byte = 0;
 			uint8_t id = 0;
+#if SLLIN_ENABLE_E2E
 			bool tx_done = false;
+#endif
 tx:
 			id = sl->elem.frame.id & 0x3f;
 			len = fd->len[id];
@@ -778,15 +780,19 @@ tx:
 				sl->slave_proto_step = SLAVE_PROTO_STEP_RX_DATA;
 				tx_byte = fd->crc[id];
 				s->USART.INTENCLR.reg = SERCOM_USART_INTENCLR_DRE;
+#if SLLIN_ENABLE_E2E
 				tx_done = true;
+#endif
 			}
 
 			s->USART.DATA.reg = tx_byte;
 
 			// LOG("ch%u TX=%x\n", index, tx_byte);
+#if SLLIN_ENABLE_E2E
 			if (unlikely(tx_done)) {
 				sllin_lin_task_tx_complete(index, id);
 			}
+#endif
 		}
 
 		goto rx;

@@ -14,6 +14,7 @@
 #include <usb_descriptors.h>
 #include <leds.h>
 
+#if SLLIN_ENABLE_E2E
 static const uint8_t Crc8_SAE_J1850[256] = {
 	0x00, 0x1D, 0x3A, 0x27, 0x74, 0x69, 0x4E, 0x53, 0xE8, 0xF5, 0xD2, 0xCF, 0x9C, 0x81, 0xA6, 0xBB,
 	0xCD, 0xD0, 0xF7, 0xEA, 0xB9, 0xA4, 0x83, 0x9E, 0x25, 0x38, 0x1F, 0x02, 0x51, 0x4C, 0x6B, 0x76,
@@ -84,20 +85,7 @@ SLLIN_RAMFUNC static void update_lin_crc(uint8_t index, uint8_t id)
 		LOG("ch%u: ID %02X: crc type not set\n", index, id);
 	}
 }
-
-static inline void e2e_update(uint8_t index, uint8_t id)
-{
-	sllin_autosar_e2e_conf* e2e = &frame_data[index].e2e[id];
-
-	switch (e2e->profile) {
-	case AUTOSAR_E2E_PROFILE_NONE:
-		update_lin_crc(index, id);
-		break;
-	default:
-		sllin_lin_task_tx_complete(index, id);
-		break;
-	}
-}
+#endif // #if SLLIN_ENABLE_E2E
 
 enum {
 	SLLIN_ERROR_TERMINATOR = 7,
@@ -117,12 +105,18 @@ static struct usb {
 	uint8_t port;
 } usb;
 
-#define SL_BUFFER_SIZE (1U << 8)
+#if SLLIN_ENABLE_E2E
+	#define SL_BUFFER_SIZE (1U << 8)
+	#define USB_TASK_STACK_SIZE (configMINIMAL_SECURE_STACK_SIZE + configMINIMAL_SECURE_STACK_SIZE / 2)
+#else
+	#define SL_BUFFER_SIZE (1U << 7)
+	#define USB_TASK_STACK_SIZE configMINIMAL_SECURE_STACK_SIZE
+#endif
 
 typedef uint16_t sl_index_t;
 
 static struct lin {
-	StackType_t usb_task_stack[configMINIMAL_SECURE_STACK_SIZE * 2]; /* E2E config */
+	StackType_t usb_task_stack[USB_TASK_STACK_SIZE];
 	StaticTask_t usb_task_mem;
 	TaskHandle_t usb_task_handle;
 	sllin_queue_element rx_fifo[8];
@@ -284,23 +278,6 @@ SLLIN_RAMFUNC static inline uint8_t char_to_nibble(char c)
 
 }
 
-static int8_t is_hex_char(char c)
-{
-	if (likely(c >= '0' && c <= '9')) {
-		return c - '0';
-	}
-
-	if (c >= 'a' && c <= 'f') {
-		return (c - 'a') + 0xa;
-	}
-
-	if (likely(c >= 'A' && c <= 'F')) {
-		return (c - 'A') + 0xa;
-	}
-
-	return -1;
-}
-
 SLLIN_RAMFUNC static inline char nibble_to_char(uint8_t nibble)
 {
 	return "0123456789abcdef"[nibble & 0xf];
@@ -407,8 +384,44 @@ SLLIN_RAMFUNC static inline uint8_t rx_next_char(uint8_t index)
 	return lin->rx_sl_buffer[lin->rx_sl_gi++ % TU_ARRAY_SIZE(lin->rx_sl_buffer)];
 }
 
-SLLIN_RAMFUNC static inline bool is_space(int c) { return c == ' '; }
-SLLIN_RAMFUNC static bool read_hex_number(uint8_t index, unsigned* out_value)
+SLLIN_RAMFUNC static void sllin_process_command(uint8_t index, bool is_side_channel);
+
+#if SLLIN_ENABLE_E2E
+
+static int8_t is_hex_char(char c)
+{
+	if (likely(c >= '0' && c <= '9')) {
+		return c - '0';
+	}
+
+	if (c >= 'a' && c <= 'f') {
+		return (c - 'a') + 0xa;
+	}
+
+	if (likely(c >= 'A' && c <= 'F')) {
+		return (c - 'A') + 0xa;
+	}
+
+	return -1;
+}
+
+
+static inline void e2e_update(uint8_t index, uint8_t id)
+{
+	sllin_autosar_e2e_conf* e2e = &frame_data[index].e2e[id];
+
+	switch (e2e->profile) {
+	case AUTOSAR_E2E_PROFILE_NONE:
+		update_lin_crc(index, id);
+		break;
+	default:
+		sllin_lin_task_tx_complete(index, id);
+		break;
+	}
+}
+
+static inline bool is_space(int c) { return c == ' '; }
+static bool read_hex_number(uint8_t index, unsigned* out_value)
 {
 	struct lin *lin = &lins[index];
 	bool result = false;
@@ -431,7 +444,7 @@ SLLIN_RAMFUNC static bool read_hex_number(uint8_t index, unsigned* out_value)
 	return result;
 }
 
-SLLIN_RAMFUNC static void skip_space(uint8_t index)
+static void skip_space(uint8_t index)
 {
 	struct lin *lin = &lins[index];
 
@@ -444,7 +457,7 @@ SLLIN_RAMFUNC static void skip_space(uint8_t index)
 	}
 }
 
-SLLIN_RAMFUNC static void skip_nonspace(uint8_t index)
+static void skip_nonspace(uint8_t index)
 {
 	struct lin *lin = &lins[index];
 
@@ -457,7 +470,7 @@ SLLIN_RAMFUNC static void skip_nonspace(uint8_t index)
 	}
 }
 
-SLLIN_RAMFUNC static void sllin_process_autosar(uint8_t index)
+static void sllin_process_autosar(uint8_t index)
 {
 	struct lin *lin = &lins[index];
 	uint8_t ch = 0;
@@ -648,121 +661,7 @@ SLLIN_RAMFUNC static void sllin_process_autosar(uint8_t index)
 	}
 }
 
-SLLIN_RAMFUNC static void sllin_process_eff_frame(uint8_t index)
-{
-	const unsigned MIN_LEN = 10;
-	struct lin *lin = &lins[index];
-	sl_index_t const count = lin->rx_sl_pi - lin->rx_sl_gi + 1; // T
-
-	if (likely(lin->enabled)) {
-		if (likely(count >= 9)) {
-			bool error = false;
-			uint32_t eff_id = 0;
-			uint8_t len = 0;
-			uint8_t lin_id = 0;
-
-			eff_id |= char_to_nibble(rx_next_char(index));
-			eff_id <<= 4;
-			eff_id |= char_to_nibble(rx_next_char(index));
-			eff_id <<= 4;
-			eff_id |= char_to_nibble(rx_next_char(index));
-			eff_id <<= 4;
-			eff_id |= char_to_nibble(rx_next_char(index));
-			eff_id <<= 4;
-			eff_id |= char_to_nibble(rx_next_char(index));
-			eff_id <<= 4;
-			eff_id |= char_to_nibble(rx_next_char(index));
-			eff_id <<= 4;
-			eff_id |= char_to_nibble(rx_next_char(index));
-			eff_id <<= 4;
-			eff_id |= char_to_nibble(rx_next_char(index));
-
-			lin_id = eff_id & 0x3f;
-
-			len = char_to_nibble(rx_next_char(index));
-
-			if (eff_id & SLLIN_ID_FLAG_FRAME_STORE) {
-				if (likely(len <= 8)) {
-					if (likely(len * 2 + MIN_LEN >= count)) {
-						struct sllin_frame_data *fd = &frame_data[index];
-						unsigned const crc_comp = (eff_id >> SLLIN_ID_FLAG_FRAME_CRC_COMP_SHIFT) & SLLIN_ID_FLAG_FRAME_CRC_COMP_MASK;
-						uint8_t *data = fd->data[lin_id];
-
-						LOG("ch%u id=%x len=%u store data=", index, lin_id, len);
-
-						for (unsigned i = 0; i < len; ++i) {
-							uint8_t hi = rx_next_char(index);
-							uint8_t lo = rx_next_char(index);
-							uint8_t byte = (char_to_nibble(hi) << 4) | char_to_nibble(lo);
-
-							data[i] = byte;
-
-							LOG("%c", hi);
-							LOG("%c", lo);
-						}
-
-						LOG("\n");
-
-						fd->len[lin_id] = len;
-
-						switch (crc_comp) {
-						case SLLIN_ID_FLAG_FRAME_CRC_COMP_NONE:
-							fd->crc[lin_id] = (eff_id >> SLLIN_ID_FLAG_CRC_SHIFT) & SLLIN_ID_FLAG_CRC_MASK;
-							fd->classic_crc_flags &= ~(UINT64_C(1) << lin_id);
-							fd->enhanced_crc_flags &= ~(UINT64_C(1) << lin_id);
-							LOG("ch%u id=%x store crc=%x\n", index, lin_id, fd->crc[lin_id]);
-							break;
-						case SLLIN_ID_FLAG_FRAME_CRC_COMP_CLASSIC: {
-							sllin_crc_t crc = sllin_crc_start();
-							crc = sllin_crc_update(crc, data, len);
-							fd->crc[lin_id] = sllin_crc_finalize(crc);
-							fd->classic_crc_flags |= UINT64_C(1) << lin_id;
-							fd->enhanced_crc_flags &= ~(UINT64_C(1) << lin_id);
-							LOG("ch%u id=%x compute classic crc=%x\n", index, lin_id, fd->crc[lin_id]);
-						} break;
-						case SLLIN_ID_FLAG_FRAME_CRC_COMP_ENHANCED: {
-							sllin_crc_t crc = sllin_crc_start();
-							crc = sllin_crc_update1(crc, sllin_id_to_pid(lin_id));
-							crc = sllin_crc_update(crc, data, len);
-							fd->crc[lin_id] = sllin_crc_finalize(crc);
-							fd->classic_crc_flags &= ~(UINT64_C(1) << lin_id);
-							fd->enhanced_crc_flags |= UINT64_C(1) << lin_id;
-							LOG("ch%u id=%x compute enhanced crc=%x\n", index, lin_id, fd->crc[lin_id]);
-						} break;
-						}
-
-						e2e_update(index, lin_id);
-					} else {
-						error = true;
-					}
-				} else {
-					error = true;
-				}
-			}
-
-			sllin_board_lin_slave_respond(index, lin_id, (eff_id & SLLIN_ID_FLAG_FRAME_ENABLE) == SLLIN_ID_FLAG_FRAME_ENABLE);
-			LOG("ch%u id=%x response %s\n", index, lin_id, (eff_id & SLLIN_ID_FLAG_FRAME_ENABLE) == SLLIN_ID_FLAG_FRAME_ENABLE ? "enabled" : "disabled");
-
-			if (unlikely(error)) {
-				LOG("ch%u malformed command\n", index);
-				tx_queue_error(index);
-			} else {
-				tx_queue(index, 'Z');
-				tx_queue_ok(index);
-			}
-		} else {
-			LOG("ch%u malformed command\n", index);
-			tx_queue_error(index);
-		}
-	} else {
-		LOG("ch%u refusing to accept frame meta data when closed\n", index);
-		tx_queue_error(index);
-	}
-}
-
-
-SLLIN_RAMFUNC static void sllin_process_command(uint8_t index, bool is_side_channel);
-SLLIN_RAMFUNC static void sllin_process_sff_frame(uint8_t index, bool is_side_channel)
+static void sllin_process_sff_frame(uint8_t index, bool is_side_channel)
 {
 	struct lin *lin = &lins[index];
 	sl_index_t const count = lin->rx_sl_pi - lin->rx_sl_gi + 1; // t
@@ -933,6 +832,224 @@ SLLIN_RAMFUNC static void sllin_process_sff_frame(uint8_t index, bool is_side_ch
 
 }
 
+/* must remain in RAM, called from interrupt context */
+SLLIN_RAMFUNC extern void sllin_lin_task_tx_complete(uint8_t index, uint8_t id)
+{
+	struct sllin_frame_data* const fd = &frame_data[index];
+	sllin_autosar_e2e_conf* const e2e = &fd->e2e[id];
+
+	if (unlikely(AUTOSAR_E2E_PROFILE_NONE != e2e->profile)) {
+		switch (e2e->profile) {
+		default:
+			break;
+		case AUTOSAR_E2E_PROFILE_11: {
+			uint8_t counter_shift = e2e->u.p11.counter_offset & 0x4;
+			uint8_t counter_mask = 0xF << counter_shift;
+			uint8_t e2e_crc = Crc8_P11_Init();
+			uint8_t e2e_crc_byte_offset = e2e->u.p11.crc_offset / 8;
+
+			if (!e2e->u.p11.data_id_mode_both) {
+				uint8_t data_nibble_shift = e2e->u.p11.data_id_nibble_offset & 0x4;
+				uint8_t data_nibble_mask = 0xF << data_nibble_shift;
+
+				// nibble, copy lower 4 bits of second byte
+				fd->data[id][e2e->u.p11.data_id_nibble_offset / 8] &= ~data_nibble_mask;
+				fd->data[id][e2e->u.p11.data_id_nibble_offset / 8] |= ((e2e->u.p11.data_id >> 8) & 0xF) << data_nibble_shift;
+			}
+
+			fd->data[id][e2e->u.p11.counter_offset / 8] &= ~counter_mask;
+			fd->data[id][e2e->u.p11.counter_offset / 8] |= e2e->u.p11.counter << counter_shift;
+
+			if (e2e->u.p11.data_id_mode_both) {
+				e2e_crc = Crc8_P11_Update(e2e_crc, e2e->u.p11.data_id);
+				e2e_crc = Crc8_P11_Update(e2e_crc, e2e->u.p11.data_id >> 8);
+			} else {
+				e2e_crc = Crc8_P11_Update(e2e_crc, e2e->u.p11.data_id);
+				e2e_crc = Crc8_P11_Update(e2e_crc, 0);
+			}
+
+			if (e2e_crc_byte_offset > 0) {
+				for (uint8_t i = 0; i < e2e_crc_byte_offset; ++i) {
+					e2e_crc = Crc8_P11_Update(e2e_crc, fd->data[id][i]);
+				}
+
+				if (unlikely(fd->len[id] > (e2e_crc_byte_offset + 1))) {
+					for (uint8_t i = e2e_crc_byte_offset + 1, e = fd->len[id]; i < e; ++i) {
+						e2e_crc = Crc8_P11_Update(e2e_crc, fd->data[id][i]);
+					}
+				}
+			} else {
+				for (uint8_t i = 1, e = fd->len[id]; i < e; ++i) {
+					e2e_crc = Crc8_P11_Update(e2e_crc, fd->data[id][i]);
+				}
+			}
+
+			fd->data[id][e2e_crc_byte_offset] = Crc8_P11_Finalize(e2e_crc);
+			// LOG("ch %u: E2E crc=%02X counter=%X\n", index, fd->data[id][e2e_crc_byte_offset], e2e->u.p11.counter);
+
+			// prepare for next
+			++e2e->u.p11.counter;
+			e2e->u.p11.counter &= 0xF;
+
+			// update LIN crc
+			update_lin_crc(index, id);
+		} break;
+		case AUTOSAR_E2E_PROFILE_22: {
+			uint8_t e2e_crc = Crc8_P22_Init();
+			uint8_t e2e_crc_byte_offset = e2e->u.p22.crc_offset / 8;
+			uint8_t e2e_counter_byte_offset = e2e_crc_byte_offset + 1;
+
+			// fd->data[id][e2e_crc_byte_offset] = e2e->u.p22.data_ids[e2e->u.p22.counter];
+			fd->data[id][e2e_counter_byte_offset] &= 0xF0;
+			fd->data[id][e2e_counter_byte_offset] |= e2e->u.p22.counter;
+
+			if (e2e_crc_byte_offset > 0) {
+				for (uint8_t i = 0; i < e2e_crc_byte_offset; ++i) {
+					e2e_crc = Crc8_P22_Update(e2e_crc, fd->data[id][i]);
+				}
+
+				for (uint8_t i = e2e_crc_byte_offset + 1, e = fd->len[id]; i < e; ++i) {
+					e2e_crc = Crc8_P22_Update(e2e_crc, fd->data[id][i]);
+				}
+			} else {
+				for (uint8_t i = 1, e = fd->len[id]; i < e; ++i) {
+					e2e_crc = Crc8_P22_Update(e2e_crc, fd->data[id][i]);
+				}
+			}
+
+			e2e_crc = Crc8_P22_Update(e2e_crc, e2e->u.p22.data_ids[e2e->u.p22.counter]);
+			fd->data[id][e2e_crc_byte_offset] = Crc8_P22_Finalize(e2e_crc);
+
+			// LOG("ch %u: E2E crc=%02X counter=%X dataid=%02X\n", index, fd->data[id][e2e_crc_byte_offset], e2e->u.p22.counter, e2e->u.p22.data_ids[e2e->u.p22.counter]);
+
+			// prepare for next
+			++e2e->u.p22.counter;
+			e2e->u.p22.counter &= 0xF;
+
+			// update LIN crc
+			update_lin_crc(index, id);
+		} break;
+		}
+	}
+}
+
+#endif // #if SLLIN_ENABLE_E2E
+
+
+SLLIN_RAMFUNC static void sllin_process_eff_frame(uint8_t index)
+{
+	const unsigned MIN_LEN = 10;
+	struct lin *lin = &lins[index];
+	sl_index_t const count = lin->rx_sl_pi - lin->rx_sl_gi + 1; // T
+
+	if (likely(lin->enabled)) {
+		if (likely(count >= 9)) {
+			bool error = false;
+			uint32_t eff_id = 0;
+			uint8_t len = 0;
+			uint8_t lin_id = 0;
+
+			eff_id |= char_to_nibble(rx_next_char(index));
+			eff_id <<= 4;
+			eff_id |= char_to_nibble(rx_next_char(index));
+			eff_id <<= 4;
+			eff_id |= char_to_nibble(rx_next_char(index));
+			eff_id <<= 4;
+			eff_id |= char_to_nibble(rx_next_char(index));
+			eff_id <<= 4;
+			eff_id |= char_to_nibble(rx_next_char(index));
+			eff_id <<= 4;
+			eff_id |= char_to_nibble(rx_next_char(index));
+			eff_id <<= 4;
+			eff_id |= char_to_nibble(rx_next_char(index));
+			eff_id <<= 4;
+			eff_id |= char_to_nibble(rx_next_char(index));
+
+			lin_id = eff_id & 0x3f;
+
+			len = char_to_nibble(rx_next_char(index));
+
+			if (eff_id & SLLIN_ID_FLAG_FRAME_STORE) {
+				if (likely(len <= 8)) {
+					if (likely(len * 2 + MIN_LEN >= count)) {
+						struct sllin_frame_data *fd = &frame_data[index];
+						unsigned const crc_comp = (eff_id >> SLLIN_ID_FLAG_FRAME_CRC_COMP_SHIFT) & SLLIN_ID_FLAG_FRAME_CRC_COMP_MASK;
+						uint8_t *data = fd->data[lin_id];
+
+						LOG("ch%u id=%x len=%u store data=", index, lin_id, len);
+
+						for (unsigned i = 0; i < len; ++i) {
+							uint8_t hi = rx_next_char(index);
+							uint8_t lo = rx_next_char(index);
+							uint8_t byte = (char_to_nibble(hi) << 4) | char_to_nibble(lo);
+
+							data[i] = byte;
+
+							LOG("%c", hi);
+							LOG("%c", lo);
+						}
+
+						LOG("\n");
+
+						fd->len[lin_id] = len;
+
+						switch (crc_comp) {
+						case SLLIN_ID_FLAG_FRAME_CRC_COMP_NONE:
+							fd->crc[lin_id] = (eff_id >> SLLIN_ID_FLAG_CRC_SHIFT) & SLLIN_ID_FLAG_CRC_MASK;
+							fd->classic_crc_flags &= ~(UINT64_C(1) << lin_id);
+							fd->enhanced_crc_flags &= ~(UINT64_C(1) << lin_id);
+							LOG("ch%u id=%x store crc=%x\n", index, lin_id, fd->crc[lin_id]);
+							break;
+						case SLLIN_ID_FLAG_FRAME_CRC_COMP_CLASSIC: {
+							sllin_crc_t crc = sllin_crc_start();
+							crc = sllin_crc_update(crc, data, len);
+							fd->crc[lin_id] = sllin_crc_finalize(crc);
+							fd->classic_crc_flags |= UINT64_C(1) << lin_id;
+							fd->enhanced_crc_flags &= ~(UINT64_C(1) << lin_id);
+							LOG("ch%u id=%x compute classic crc=%x\n", index, lin_id, fd->crc[lin_id]);
+						} break;
+						case SLLIN_ID_FLAG_FRAME_CRC_COMP_ENHANCED: {
+							sllin_crc_t crc = sllin_crc_start();
+							crc = sllin_crc_update1(crc, sllin_id_to_pid(lin_id));
+							crc = sllin_crc_update(crc, data, len);
+							fd->crc[lin_id] = sllin_crc_finalize(crc);
+							fd->classic_crc_flags &= ~(UINT64_C(1) << lin_id);
+							fd->enhanced_crc_flags |= UINT64_C(1) << lin_id;
+							LOG("ch%u id=%x compute enhanced crc=%x\n", index, lin_id, fd->crc[lin_id]);
+						} break;
+						}
+#if SLLIN_ENABLE_E2E
+						e2e_update(index, lin_id);
+#endif
+					} else {
+						error = true;
+					}
+				} else {
+					error = true;
+				}
+			}
+
+			sllin_board_lin_slave_respond(index, lin_id, (eff_id & SLLIN_ID_FLAG_FRAME_ENABLE) == SLLIN_ID_FLAG_FRAME_ENABLE);
+			LOG("ch%u id=%x response %s\n", index, lin_id, (eff_id & SLLIN_ID_FLAG_FRAME_ENABLE) == SLLIN_ID_FLAG_FRAME_ENABLE ? "enabled" : "disabled");
+
+			if (unlikely(error)) {
+				LOG("ch%u malformed command\n", index);
+				tx_queue_error(index);
+			} else {
+				tx_queue(index, 'Z');
+				tx_queue_ok(index);
+			}
+		} else {
+			LOG("ch%u malformed command\n", index);
+			tx_queue_error(index);
+		}
+	} else {
+		LOG("ch%u refusing to accept frame meta data when closed\n", index);
+		tx_queue_error(index);
+	}
+}
+
+
 SLLIN_RAMFUNC static void sllin_process_command(uint8_t index, bool is_side_channel)
 {
 	// http://www.can232.com/docs/canusb_manual.pdf
@@ -941,12 +1058,21 @@ SLLIN_RAMFUNC static void sllin_process_command(uint8_t index, bool is_side_chan
 	sl_index_t const count = lin->rx_sl_pi - lin->rx_sl_gi;
 	char const cmd_start_char = rx_next_char(index);
 
+#if !SLLIN_ENABLE_E2E
+	(void)is_side_channel;
+#endif
+
 	switch (cmd_start_char) {
 	case '\n':
 		break;
+#if SLLIN_ENABLE_E2E
 	case 'A': // AUTOSAR
 		sllin_process_autosar(index);
 		break;
+	case 't':
+		sllin_process_sff_frame(index, is_side_channel);
+		break;
+#endif
 	case 'S': // CAN bitrate, values 0-8
 		if (lin->enabled) {
 			LOG("ch%u refusing to configure LIN when open\n", index);
@@ -1155,9 +1281,6 @@ SLLIN_RAMFUNC static void sllin_process_command(uint8_t index, bool is_side_chan
 			LOG("ch%u report time stamp periodically %u\n", index, lin->report_time_periodically);
 			tx_queue_ok(index);
 		}
-		break;
-	case 't':
-		sllin_process_sff_frame(index, is_side_channel);
 		break;
 	default:
 		LOG("ch%u unhandled command %c (%02X)\n", index, cmd_start_char, cmd_start_char);
@@ -1468,105 +1591,6 @@ SLLIN_RAMFUNC extern void sllin_lin_task_notify_isr(uint8_t index, uint32_t coun
 	}
 }
 
-SLLIN_RAMFUNC extern void sllin_lin_task_tx_complete(uint8_t index, uint8_t id)
-{
-	struct sllin_frame_data* const fd = &frame_data[index];
-	sllin_autosar_e2e_conf* const e2e = &fd->e2e[id];
-
-	if (unlikely(AUTOSAR_E2E_PROFILE_NONE != e2e->profile)) {
-		switch (e2e->profile) {
-		default:
-			break;
-		case AUTOSAR_E2E_PROFILE_11: {
-			uint8_t counter_shift = e2e->u.p11.counter_offset & 0x4;
-			uint8_t counter_mask = 0xF << counter_shift;
-			uint8_t e2e_crc = Crc8_P11_Init();
-			uint8_t e2e_crc_byte_offset = e2e->u.p11.crc_offset / 8;
-
-			if (!e2e->u.p11.data_id_mode_both) {
-				uint8_t data_nibble_shift = e2e->u.p11.data_id_nibble_offset & 0x4;
-				uint8_t data_nibble_mask = 0xF << data_nibble_shift;
-
-				// nibble, copy lower 4 bits of second byte
-				fd->data[id][e2e->u.p11.data_id_nibble_offset / 8] &= ~data_nibble_mask;
-				fd->data[id][e2e->u.p11.data_id_nibble_offset / 8] |= ((e2e->u.p11.data_id >> 8) & 0xF) << data_nibble_shift;
-			}
-
-			fd->data[id][e2e->u.p11.counter_offset / 8] &= ~counter_mask;
-			fd->data[id][e2e->u.p11.counter_offset / 8] |= e2e->u.p11.counter << counter_shift;
-
-			if (e2e->u.p11.data_id_mode_both) {
-				e2e_crc = Crc8_P11_Update(e2e_crc, e2e->u.p11.data_id);
-				e2e_crc = Crc8_P11_Update(e2e_crc, e2e->u.p11.data_id >> 8);
-			} else {
-				e2e_crc = Crc8_P11_Update(e2e_crc, e2e->u.p11.data_id);
-				e2e_crc = Crc8_P11_Update(e2e_crc, 0);
-			}
-
-			if (e2e_crc_byte_offset > 0) {
-				for (uint8_t i = 0; i < e2e_crc_byte_offset; ++i) {
-					e2e_crc = Crc8_P11_Update(e2e_crc, fd->data[id][i]);
-				}
-
-				if (unlikely(fd->len[id] > (e2e_crc_byte_offset + 1))) {
-					for (uint8_t i = e2e_crc_byte_offset + 1, e = fd->len[id]; i < e; ++i) {
-						e2e_crc = Crc8_P11_Update(e2e_crc, fd->data[id][i]);
-					}
-				}
-			} else {
-				for (uint8_t i = 1, e = fd->len[id]; i < e; ++i) {
-					e2e_crc = Crc8_P11_Update(e2e_crc, fd->data[id][i]);
-				}
-			}
-
-			fd->data[id][e2e_crc_byte_offset] = Crc8_P11_Finalize(e2e_crc);
-			// LOG("ch %u: E2E crc=%02X counter=%X\n", index, fd->data[id][e2e_crc_byte_offset], e2e->u.p11.counter);
-
-			// prepare for next
-			++e2e->u.p11.counter;
-			e2e->u.p11.counter &= 0xF;
-
-			// update LIN crc
-			update_lin_crc(index, id);
-		} break;
-		case AUTOSAR_E2E_PROFILE_22: {
-			uint8_t e2e_crc = Crc8_P22_Init();
-			uint8_t e2e_crc_byte_offset = e2e->u.p22.crc_offset / 8;
-			uint8_t e2e_counter_byte_offset = e2e_crc_byte_offset + 1;
-
-			// fd->data[id][e2e_crc_byte_offset] = e2e->u.p22.data_ids[e2e->u.p22.counter];
-			fd->data[id][e2e_counter_byte_offset] &= 0xF0;
-			fd->data[id][e2e_counter_byte_offset] |= e2e->u.p22.counter;
-
-			if (e2e_crc_byte_offset > 0) {
-				for (uint8_t i = 0; i < e2e_crc_byte_offset; ++i) {
-					e2e_crc = Crc8_P22_Update(e2e_crc, fd->data[id][i]);
-				}
-
-				for (uint8_t i = e2e_crc_byte_offset + 1, e = fd->len[id]; i < e; ++i) {
-					e2e_crc = Crc8_P22_Update(e2e_crc, fd->data[id][i]);
-				}
-			} else {
-				for (uint8_t i = 1, e = fd->len[id]; i < e; ++i) {
-					e2e_crc = Crc8_P22_Update(e2e_crc, fd->data[id][i]);
-				}
-			}
-
-			e2e_crc = Crc8_P22_Update(e2e_crc, e2e->u.p22.data_ids[e2e->u.p22.counter]);
-			fd->data[id][e2e_crc_byte_offset] = Crc8_P22_Finalize(e2e_crc);
-
-			// LOG("ch %u: E2E crc=%02X counter=%X dataid=%02X\n", index, fd->data[id][e2e_crc_byte_offset], e2e->u.p22.counter, e2e->u.p22.data_ids[e2e->u.p22.counter]);
-
-			// prepare for next
-			++e2e->u.p22.counter;
-			e2e->u.p22.counter &= 0xF;
-
-			// update LIN crc
-			update_lin_crc(index, id);
-		} break;
-		}
-	}
-}
 
 uint16_t _sllin_time_stamp_ms;
 
