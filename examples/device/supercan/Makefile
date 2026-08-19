@@ -121,8 +121,9 @@ SRC_C += \
 	$(FREERTOS_SRC)/timers.c \
 	$(subst ../../../,,$(wildcard ../../../$(FREERTOS_SRC)/portable/GCC/$(FREERTOS_PORT)/*.c))
 
-# FreeRTOS (lto + Os) linker issue
-LDFLAGS += -Wl,--undefined=vTaskSwitchContext
+# FreeRTOS (LTO + Os) linker issue. The port references pxCurrentTCB from
+# inline assembly, which the LTO symbol analysis cannot see.
+LDFLAGS += -Wl,--undefined=vTaskSwitchContext -Wl,--undefined=pxCurrentTCB
 
 include ../../rules.mk
 include $(TOP)/examples/device/superdfu/src/dfu.mk

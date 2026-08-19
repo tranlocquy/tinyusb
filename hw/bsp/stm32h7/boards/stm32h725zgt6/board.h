@@ -92,6 +92,7 @@ static inline void board_stm32h7_clock_init(void)
   clk.SYSCLKDivider = RCC_SYSCLK_DIV1;
   clk.AHBCLKDivider = RCC_HCLK_DIV1;
   clk.APB3CLKDivider = RCC_APB3_DIV2;
+  /* VOS2 limits APB clocks to 75 MHz; FDCAN also uses a 60 MHz kernel clock. */
   clk.APB1CLKDivider = RCC_APB1_DIV2;
   clk.APB2CLKDivider = RCC_APB2_DIV2;
   clk.APB4CLKDivider = RCC_APB4_DIV2;

@@ -92,7 +92,7 @@ void mcan_can_configure(uint8_t index)
 
 	m_can_conf_begin(can);
 
-	can->CCCR.bit.EFBI = 1; // enable edge filtering
+	can->CCCR.bit.EFBI = MCAN_ENABLE_EDGE_FILTERING;
 	can->CCCR.bit.BRSE = 1; // enable CAN-FD bitrate switching (only effective in CAN-FD mode if configured)
 
 	if (c->features & SC_FEATURE_FLAG_MON_MODE) {
@@ -1502,4 +1502,3 @@ SC_RAMFUNC extern void mcan_can_verify_guard(uint8_t index)
 
 
 #endif // SUPERMCANX_MCAN
-

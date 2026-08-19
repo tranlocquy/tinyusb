@@ -20,8 +20,9 @@
 #include <stm32h7xx_hal.h> // for stm32h7xx_hal_cortex.h to have NVIC_PRIORITYGROUP_4
 
 // Shared application implementation for the H7A3 Nucleo and STM32H725ZGT6
-// targets. Their SuperCAN GPIO, FDCAN message RAM, timer and LED layouts match;
-// the FDCAN kernel-clock selector is handled per RCC generation below.
+// targets. The H725 adds a second FDCAN channel and partitions the fixed shared
+// message RAM between both controllers. Clock selection is handled per RCC
+// generation below.
 
 
 #define PORT_SHIFT 4
@@ -115,7 +116,7 @@ static bool pll2_wait_ready(bool ready)
 
 __attribute__((noreturn)) static void fdcan_clock_failed(void)
 {
-	LOG("failed to configure 80 MHz FDCAN clock\n");
+	LOG("failed to configure 60 MHz FDCAN clock\n");
 	NVIC_SystemReset();
 	while (1);
 }
@@ -132,10 +133,10 @@ static void fdcan_clock_init(void)
 		fdcan_clock_failed();
 	}
 
-	// HSI64 / M4 * N15 / Q3 = 80 MHz. P and R are unused and kept at their
+	// HSI64 / M4 * N15 / Q4 = 60 MHz. P and R are unused and kept at their
 	// lowest valid divider while only the Q output is enabled.
 	__HAL_RCC_PLL2CLKOUT_DISABLE(RCC_PLL2_DIVP | RCC_PLL2_DIVQ | RCC_PLL2_DIVR);
-	__HAL_RCC_PLL2_CONFIG(4, 15, 1, 3, 1);
+	__HAL_RCC_PLL2_CONFIG(4, 15, 1, 4, 1);
 	__HAL_RCC_PLL2_VCIRANGE(RCC_PLL2VCIRANGE_3);
 	__HAL_RCC_PLL2_VCORANGE(RCC_PLL2VCOWIDE);
 	__HAL_RCC_PLL2FRACN_DISABLE();
@@ -152,60 +153,122 @@ static void fdcan_clock_init(void)
 }
 #endif
 
+enum {
+	FDCAN_RX_FIFO_BYTES = sizeof(struct mcan_rx_fifo_element) * MCAN_HW_RX_FIFO_SIZE,
+	FDCAN_TX_FIFO_BYTES = sizeof(struct mcan_tx_fifo_element) * MCAN_HW_TX_FIFO_SIZE,
+	FDCAN_TXE_FIFO_BYTES = sizeof(struct mcan_txe_fifo_element) * MCAN_HW_TX_FIFO_SIZE,
+
+	FDCAN1_RX_FIFO_OFFSET = 0,
+	FDCAN1_TX_FIFO_OFFSET = FDCAN1_RX_FIFO_OFFSET + FDCAN_RX_FIFO_BYTES,
+	FDCAN1_TXE_FIFO_OFFSET = FDCAN1_TX_FIFO_OFFSET + FDCAN_TX_FIFO_BYTES,
+	FDCAN1_RAM_END_OFFSET = FDCAN1_TXE_FIFO_OFFSET + FDCAN_TXE_FIFO_BYTES,
+#if STM32H725ZGT6
+	FDCAN2_RX_FIFO_OFFSET = FDCAN1_RAM_END_OFFSET,
+	FDCAN2_TX_FIFO_OFFSET = FDCAN2_RX_FIFO_OFFSET + FDCAN_RX_FIFO_BYTES,
+	FDCAN2_TXE_FIFO_OFFSET = FDCAN2_TX_FIFO_OFFSET + FDCAN_TX_FIFO_BYTES,
+	FDCAN2_RAM_END_OFFSET = FDCAN2_TXE_FIFO_OFFSET + FDCAN_TXE_FIFO_BYTES,
+	STM32H725_SRAMCAN_BYTES = 0x2800,
+#endif
+};
+
+#if STM32H725ZGT6
+_Static_assert(SC_BOARD_CAN_COUNT == 2, "STM32H725ZGT6 requires two CAN channels");
+_Static_assert(MCAN_HW_RX_FIFO_SIZE == 32, "STM32H725ZGT6 RX FIFO must contain 32 elements");
+_Static_assert(MCAN_HW_TX_FIFO_SIZE == 32, "STM32H725ZGT6 TX and TX event FIFOs must contain 32 elements");
+_Static_assert(FDCAN2_RX_FIFO_OFFSET == FDCAN1_RAM_END_OFFSET, "FDCAN message RAM regions must be contiguous");
+_Static_assert(FDCAN2_RAM_END_OFFSET == 0x2600, "Unexpected dual-FDCAN message RAM layout");
+_Static_assert(FDCAN2_RAM_END_OFFSET <= STM32H725_SRAMCAN_BYTES, "FDCAN message RAM exceeds SRAMCAN");
+_Static_assert(((FDCAN1_RX_FIFO_OFFSET | FDCAN1_TX_FIFO_OFFSET | FDCAN1_TXE_FIFO_OFFSET
+	| FDCAN2_RX_FIFO_OFFSET | FDCAN2_TX_FIFO_OFFSET | FDCAN2_TXE_FIFO_OFFSET
+	| FDCAN2_RAM_END_OFFSET) & 3) == 0, "FDCAN message RAM must be word aligned");
+#endif
+
+struct fdcan_channel_config {
+	MCanX *m_can;
+	IRQn_Type interrupt_id;
+	uint32_t rx_fifo_offset;
+	uint32_t tx_fifo_offset;
+	uint32_t txe_fifo_offset;
+	uint8_t led_status_green;
+	uint8_t led_status_red;
+};
+
+static const struct fdcan_channel_config fdcan_channels[] = {
+	{
+		.m_can = (MCanX *)FDCAN1,
+		.interrupt_id = FDCAN1_IT0_IRQn,
+		.rx_fifo_offset = FDCAN1_RX_FIFO_OFFSET,
+		.tx_fifo_offset = FDCAN1_TX_FIFO_OFFSET,
+		.txe_fifo_offset = FDCAN1_TXE_FIFO_OFFSET,
+		.led_status_green = LED_CAN0_STATUS_GREEN,
+		.led_status_red = LED_CAN0_STATUS_RED,
+	},
+#if STM32H725ZGT6
+	{
+		.m_can = (MCanX *)FDCAN2,
+		.interrupt_id = FDCAN2_IT0_IRQn,
+		.rx_fifo_offset = FDCAN2_RX_FIFO_OFFSET,
+		.tx_fifo_offset = FDCAN2_TX_FIFO_OFFSET,
+		.txe_fifo_offset = FDCAN2_TXE_FIFO_OFFSET,
+		// SC_BOARD_LED_COUNT is an invalid LED index used as a no-LED sentinel.
+		.led_status_green = SC_BOARD_LED_COUNT,
+		.led_status_red = SC_BOARD_LED_COUNT,
+	},
+#endif
+};
+
+_Static_assert(TU_ARRAY_SIZE(fdcan_channels) == SC_BOARD_CAN_COUNT,
+	"FDCAN channel table does not match SC_BOARD_CAN_COUNT");
+
 // controller and hardware specific setup of i/o pins for CAN
 static void can_init(void)
 {
-	/* FDCAN1_RX PD0, FDCAN1_TX PD1 */
-	const uint32_t GPIO_MODE_AF_FDCAN = GPIO_AF9_FDCAN1;
+	/* All selected FDCAN GPIO signals use alternate function 9. */
+	const uint32_t gpio_af_fdcan1 = GPIO_AF9_FDCAN1;
 
-	/* CAN RAM Layout:
-	 	- RX fifo (base)
-		- TX fifo
-		- TX event fifo
-	*/
-	uint32_t const FDCAN1_RX_FIFO_OFFSET = 0;
-	uint32_t const FDCAN1_TX_FIFO_OFFSET = FDCAN1_RX_FIFO_OFFSET + sizeof(struct mcan_rx_fifo_element) * MCAN_HW_RX_FIFO_SIZE;
-	uint32_t const FDCAN1_TXE_FIFO_OFFSET = FDCAN1_TX_FIFO_OFFSET + sizeof(struct mcan_tx_fifo_element) * MCAN_HW_TX_FIFO_SIZE;
-	MCanX* const can0 = (MCanX*)FDCAN1;
+#if STM32H725ZGT6
+	/* DS13311, STM32H725ZGT6 LQFP144:
+	 *   FDCAN1_RX PB8 (pin 136), FDCAN1_TX PB9 (pin 137)
+	 *   FDCAN2_RX PB5 (pin 132), FDCAN2_TX PB6 (pin 133) */
+	const uint32_t gpio_af_fdcan2 = GPIO_AF9_FDCAN2;
 
-	LOG("FDCAN1 offset RX=%08lx TX=%08lx TXE=%08lx\n",
-		FDCAN1_RX_FIFO_OFFSET, FDCAN1_TX_FIFO_OFFSET, FDCAN1_TXE_FIFO_OFFSET);
+	RCC->AHB4ENR |= RCC_AHB4ENR_GPIOBEN;
 
+	GPIOB->AFR[0] =
+		(GPIOB->AFR[0] & ~(GPIO_AFRL_AFSEL5 | GPIO_AFRL_AFSEL6))
+		| (gpio_af_fdcan2 << GPIO_AFRL_AFSEL5_Pos)
+		| (gpio_af_fdcan2 << GPIO_AFRL_AFSEL6_Pos);
 
-	mcan_can_init();
+	GPIOB->AFR[1] =
+		(GPIOB->AFR[1] & ~(GPIO_AFRH_AFSEL8 | GPIO_AFRH_AFSEL9))
+		| (gpio_af_fdcan1 << GPIO_AFRH_AFSEL8_Pos)
+		| (gpio_af_fdcan1 << GPIO_AFRH_AFSEL9_Pos);
 
-	mcan_cans[0].m_can = can0;
-	mcan_cans[0].interrupt_id = FDCAN1_IT0_IRQn;
-	mcan_cans[0].led_traffic = 0;
-	mcan_cans[0].led_status_green = LED_CAN0_STATUS_GREEN;
-	mcan_cans[0].led_status_red = LED_CAN0_STATUS_RED;
-	mcan_cans[0].hw_tx_fifo_ram = (struct mcan_tx_fifo_element *)(SRAMCAN_BASE + FDCAN1_TX_FIFO_OFFSET);
-	mcan_cans[0].hw_txe_fifo_ram = (struct mcan_txe_fifo_element *)(SRAMCAN_BASE + FDCAN1_TXE_FIFO_OFFSET);
-	mcan_cans[0].hw_rx_fifo_ram = (struct mcan_rx_fifo_element *)(SRAMCAN_BASE + FDCAN1_RX_FIFO_OFFSET);
-
-
-
-	// enable clock to GPIO block D
+	GPIOB->MODER =
+		(GPIOB->MODER & ~(GPIO_MODER_MODE5 | GPIO_MODER_MODE6
+			| GPIO_MODER_MODE8 | GPIO_MODER_MODE9))
+		| (GPIO_MODE_AF_PP << GPIO_MODER_MODE5_Pos)
+		| (GPIO_MODE_AF_PP << GPIO_MODER_MODE6_Pos)
+		| (GPIO_MODE_AF_PP << GPIO_MODER_MODE8_Pos)
+		| (GPIO_MODE_AF_PP << GPIO_MODER_MODE9_Pos);
+#else
+	/* NUCLEO-H7A3ZI-Q: FDCAN1_RX PD0 and FDCAN1_TX PD1. */
 	RCC->AHB4ENR |= RCC_AHB4ENR_GPIODEN;
 
-
-	// alternate function to CAN
 	GPIOD->AFR[0] =
 		(GPIOD->AFR[0] & ~(GPIO_AFRL_AFSEL0 | GPIO_AFRL_AFSEL1))
-		| (GPIO_MODE_AF_FDCAN << GPIO_AFRL_AFSEL0_Pos)
-		| (GPIO_MODE_AF_FDCAN << GPIO_AFRL_AFSEL1_Pos);
+		| (gpio_af_fdcan1 << GPIO_AFRL_AFSEL0_Pos)
+		| (gpio_af_fdcan1 << GPIO_AFRL_AFSEL1_Pos);
 
-	// switch mode to alternate function
 	GPIOD->MODER =
 		(GPIOD->MODER & ~(
 			GPIO_MODER_MODE0
 			| GPIO_MODER_MODE1))
 		| (GPIO_MODE_AF_PP << GPIO_MODER_MODE0_Pos)
 		| (GPIO_MODE_AF_PP << GPIO_MODER_MODE1_Pos);
+#endif
 
-
-
-	// setup PLL2 to provide 80 MHz from 64 Mhz HSI
+	// Configure the target-specific PLL2 FDCAN kernel clock from HSI64.
 #if STM32H725ZGT6
 	fdcan_clock_init();
 #else
@@ -248,37 +311,78 @@ static void can_init(void)
 
 	LOG("M_CAN CCU release %lx\n", FDCAN_CCU->CREL);
 
-	m_can_init_begin(can0);
-	m_can_conf_begin(can0);
+	mcan_can_init();
 
-	// Setup clock calibration unit (CCU) for bypass.
-	// Must have INIT, CCE set
+	for (size_t i = 0; i < TU_ARRAY_SIZE(fdcan_channels); ++i) {
+		const struct fdcan_channel_config *config = &fdcan_channels[i];
+		struct mcan_can *can = &mcan_cans[i];
+
+		can->m_can = config->m_can;
+		can->interrupt_id = config->interrupt_id;
+		can->led_traffic = SC_BOARD_DEBUG_DEFAULT;
+		can->led_status_green = config->led_status_green;
+		can->led_status_red = config->led_status_red;
+		can->hw_tx_fifo_ram = (struct mcan_tx_fifo_element *)(SRAMCAN_BASE + config->tx_fifo_offset);
+		can->hw_txe_fifo_ram = (struct mcan_txe_fifo_element *)(SRAMCAN_BASE + config->txe_fifo_offset);
+		can->hw_rx_fifo_ram = (struct mcan_rx_fifo_element *)(SRAMCAN_BASE + config->rx_fifo_offset);
+
+		LOG("FDCAN%u offset RX=%08lx TX=%08lx TXE=%08lx\n",
+			(unsigned)i + 1,
+			(unsigned long)config->rx_fifo_offset,
+			(unsigned long)config->tx_fifo_offset,
+			(unsigned long)config->txe_fifo_offset);
+
+		m_can_init_begin(can->m_can);
+		m_can_conf_begin(can->m_can);
+	}
+
+#if STM32H725ZGT6
+	/* AN5348 requires every allocated FDCAN message-RAM word to be
+	 * initialized before use. Both controllers are held in INIT here. */
+	volatile uint32_t *message_ram = (volatile uint32_t *)SRAMCAN_BASE;
+	for (size_t i = 0; i < FDCAN2_RAM_END_OFFSET / sizeof(*message_ram); ++i) {
+		message_ram[i] = 0;
+	}
+	__DSB();
+#endif
+
+	// Setup shared clock calibration unit (CCU) for bypass.
+	// All FDCAN instances must have INIT and CCE set while it is changed.
 	FDCAN_CCU->CCFG = FDCANCCU_CCFG_SWR;
-
-	// set bypass with divider of 1
 	FDCAN_CCU->CCFG = FDCANCCU_CCFG_BCC;
 	LOG("CCU CCFG=%08lx\n", FDCAN_CCU->CCFG);
-	can0->ILE.reg = MCANX_ILE_EINT0;
 
-	// tx fifo
-	can0->TXBC.reg = MCANX_TXBC_TBSA(FDCAN1_TX_FIFO_OFFSET) | MCANX_TXBC_TFQS(MCAN_HW_TX_FIFO_SIZE);
-	// tx event fifo
-	can0->TXEFC.reg = MCANX_TXEFC_EFSA(FDCAN1_TXE_FIFO_OFFSET) | MCANX_TXEFC_EFS(MCAN_HW_TX_FIFO_SIZE);
-	// rx fifo0
-	can0->RXF0C.reg = MCANX_RXF0C_F0SA(FDCAN1_RX_FIFO_OFFSET) | MCANX_RXF0C_F0S(MCAN_HW_RX_FIFO_SIZE);
+	for (size_t i = 0; i < TU_ARRAY_SIZE(fdcan_channels); ++i) {
+		const struct fdcan_channel_config *config = &fdcan_channels[i];
+		struct mcan_can *channel = &mcan_cans[i];
+		MCanX *can = channel->m_can;
 
-	// configure for max message size
-	can0->TXESC.reg = MCANX_TXESC_TBDS_DATA64;
-	//  | MCANX_RXF0C_F0OM; // FIFO 0 overwrite mode
-	can0->RXESC.reg = MCANX_RXESC_RBDS_DATA64 + MCANX_RXESC_F0DS_DATA64;
+		// Route all enabled sources to this controller's interrupt line 0.
+		can->ILS = 0;
+		can->ILE.reg = MCANX_ILE_EINT0;
 
+		// tx fifo
+		can->TXBC.reg = MCANX_TXBC_TBSA(config->tx_fifo_offset) | MCANX_TXBC_TFQS(MCAN_HW_TX_FIFO_SIZE);
+		// tx event fifo
+		can->TXEFC.reg = MCANX_TXEFC_EFSA(config->txe_fifo_offset) | MCANX_TXEFC_EFS(MCAN_HW_TX_FIFO_SIZE);
+		// rx fifo0
+		can->RXF0C.reg = MCANX_RXF0C_F0SA(config->rx_fifo_offset) | MCANX_RXF0C_F0S(MCAN_HW_RX_FIFO_SIZE);
 
-	m_can_conf_end(can0);
+		// configure for max message size
+		can->TXESC.reg = MCANX_TXESC_TBDS_DATA64;
+		//  | MCANX_RXF0C_F0OM; // FIFO 0 overwrite mode
+		can->RXESC.reg = MCANX_RXESC_RBDS_DATA64 + MCANX_RXESC_F0DS_DATA64;
 
+		m_can_conf_end(can);
+		NVIC_SetPriority(channel->interrupt_id, SC_ISR_PRIORITY);
 
-	NVIC_SetPriority(mcan_cans[0].interrupt_id, SC_ISR_PRIORITY);
-
-	LOG("M_CAN CAN release %u.%u.%u (%lx)\n", mcan_cans[0].m_can->CREL.bit.REL, mcan_cans[0].m_can->CREL.bit.STEP, mcan_cans[0].m_can->CREL.bit.SUBSTEP, mcan_cans[0].m_can->CREL.reg);
+		LOG("M_CAN%u release %u.%u.%u (%lx)\n",
+			(unsigned)i + 1,
+			can->CREL.bit.REL,
+			can->CREL.bit.STEP,
+			can->CREL.bit.SUBSTEP,
+			can->CREL.reg);
+	}
 }
 
 static inline void counter_1mhz_init(void)
@@ -392,7 +496,18 @@ extern void sc_board_init_end(void)
 
 SC_RAMFUNC extern void sc_board_led_can_status_set(uint8_t index, int status)
 {
+	SC_DEBUG_ASSERT(index < TU_ARRAY_SIZE(mcan_cans));
+	if (index >= TU_ARRAY_SIZE(mcan_cans)) {
+		return;
+	}
+
 	struct mcan_can *can = &mcan_cans[index];
+
+	// A channel may be present without dedicated physical status LEDs.
+	if (can->led_status_green >= TU_ARRAY_SIZE(leds)
+		|| can->led_status_red >= TU_ARRAY_SIZE(leds)) {
+		return;
+	}
 
 	switch (status) {
 	case SC_CAN_LED_STATUS_DISABLED:
@@ -455,6 +570,15 @@ SC_RAMFUNC void FDCAN1_IT0_IRQHandler(void)
 
 	mcan_can_int(0);
 }
+
+#if STM32H725ZGT6
+SC_RAMFUNC void FDCAN2_IT0_IRQHandler(void)
+{
+	// LOG("FDCAN2_IT0 int\n");
+
+	mcan_can_int(1);
+}
+#endif
 
 SC_RAMFUNC void TIM2_IRQHandler(void)
 {

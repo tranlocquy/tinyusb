@@ -23,6 +23,10 @@ enum {
 	#error Define MCAN_MESSAGE_RAM_CONFIGURABLE
 #endif
 
+#ifndef MCAN_ENABLE_EDGE_FILTERING
+	#define MCAN_ENABLE_EDGE_FILTERING 1
+#endif
+
 #ifndef MCAN_HW_RX_FIFO_SIZE
 	#error Define MCAN_HW_RX_FIFO_SIZE
 #endif
