@@ -1,12 +1,13 @@
 /* SPDX-License-Identifier: MIT
  *
  * Copyright (c) 2023 Jean Gressmann <jean@0x42.de>
+ * Copyright (c) 2026 SuperCAN contributors
  *
  */
 
 #include <supercan_board.h>
 
-#if STM32H7A3NUCLEO
+#if STM32H7A3NUCLEO || STM32H725ZGT6
 
 #include <supercan_debug.h>
 #include <leds.h>
@@ -17,6 +18,10 @@
 
 #include <tusb.h>
 #include <stm32h7xx_hal.h> // for stm32h7xx_hal_cortex.h to have NVIC_PRIORITYGROUP_4
+
+// Shared application implementation for the H7A3 Nucleo and STM32H725ZGT6
+// targets. Their SuperCAN GPIO, FDCAN message RAM, timer and LED layouts match;
+// the FDCAN kernel-clock selector is handled per RCC generation below.
 
 
 #define PORT_SHIFT 4
@@ -92,11 +97,66 @@ void MemMang_Handler(void)
 	HARDFAULT_HANDLING_ASM();
 }
 
+#if STM32H725ZGT6
+static bool pll2_wait_ready(bool ready)
+{
+	// PLL lock/unlock is specified in microseconds. A core-clock-scaled bounded
+	// wait prevents a broken oscillator from hanging startup forever.
+	uint32_t timeout = SystemCoreClock / 100;
+
+	while (((RCC->CR & RCC_CR_PLL2RDY) != 0) != ready) {
+		if (--timeout == 0) {
+			return false;
+		}
+	}
+
+	return true;
+}
+
+__attribute__((noreturn)) static void fdcan_clock_failed(void)
+{
+	LOG("failed to configure 80 MHz FDCAN clock\n");
+	NVIC_SystemReset();
+	while (1);
+}
+
+static void fdcan_clock_init(void)
+{
+	// PLL2 shares PLLSRC with PLL1. The STM32H725ZGT6 BSP selects HSI64.
+	if (__HAL_RCC_GET_PLL_OSCSOURCE() != RCC_PLLSOURCE_HSI) {
+		fdcan_clock_failed();
+	}
+
+	__HAL_RCC_PLL2_DISABLE();
+	if (!pll2_wait_ready(false)) {
+		fdcan_clock_failed();
+	}
+
+	// HSI64 / M4 * N15 / Q3 = 80 MHz. P and R are unused and kept at their
+	// lowest valid divider while only the Q output is enabled.
+	__HAL_RCC_PLL2CLKOUT_DISABLE(RCC_PLL2_DIVP | RCC_PLL2_DIVQ | RCC_PLL2_DIVR);
+	__HAL_RCC_PLL2_CONFIG(4, 15, 1, 3, 1);
+	__HAL_RCC_PLL2_VCIRANGE(RCC_PLL2VCIRANGE_3);
+	__HAL_RCC_PLL2_VCORANGE(RCC_PLL2VCOWIDE);
+	__HAL_RCC_PLL2FRACN_DISABLE();
+	__HAL_RCC_PLL2FRACN_CONFIG(0);
+	__HAL_RCC_PLL2CLKOUT_ENABLE(RCC_PLL2_DIVQ);
+
+	__HAL_RCC_PLL2_ENABLE();
+	if (!pll2_wait_ready(true)) {
+		fdcan_clock_failed();
+	}
+
+	// For STM32H725xx this macro selects PLL2Q through D2CCIP1R.FDCANSEL.
+	__HAL_RCC_FDCAN_CONFIG(RCC_FDCANCLKSOURCE_PLL2);
+}
+#endif
+
 // controller and hardware specific setup of i/o pins for CAN
 static void can_init(void)
 {
 	/* FDCAN1_RX PD0, FDCAN1_TX PD1 */
-	const uint32_t GPIO_MODE_AF_FDCAN = 0x9; // DS13195 - Rev 8 page 71/23
+	const uint32_t GPIO_MODE_AF_FDCAN = GPIO_AF9_FDCAN1;
 
 	/* CAN RAM Layout:
 	 	- RX fifo (base)
@@ -146,6 +206,9 @@ static void can_init(void)
 
 
 	// setup PLL2 to provide 80 MHz from 64 Mhz HSI
+#if STM32H725ZGT6
+	fdcan_clock_init();
+#else
 	RCC->CR &= ~RCC_CR_PLL2ON;
 
 	RCC->PLLCFGR =
@@ -177,6 +240,7 @@ static void can_init(void)
 		(RCC->CDCCIP1R &
 		~(RCC_CDCCIP1R_FDCANSEL))
 		| (0x2 << RCC_CDCCIP1R_FDCANSEL_Pos);
+#endif
 
 	// enable clock
 	RCC->APB1HENR |= RCC_APB1HENR_FDCANEN;
@@ -400,4 +464,4 @@ SC_RAMFUNC void TIM2_IRQHandler(void)
 	TIM2->SR = 0;
 }
 
-#endif // #if STM32H7A3NUCLEO
+#endif // #if STM32H7A3NUCLEO || STM32H725ZGT6

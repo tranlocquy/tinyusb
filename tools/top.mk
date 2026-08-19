@@ -25,6 +25,9 @@ endif
 ifeq ($(CMDEXE),1)
 CURRENT_PATH := $(subst $(TOP)/,,$(subst \,/,$(shell echo %CD%)))
 else
-CURRENT_PATH := $(shell realpath --relative-to=$(TOP) `pwd`)
+# GNU realpath's --relative-to option is not available on BSD/macOS. CURDIR
+# and TOP are already absolute here, so make can derive the in-tree path
+# without invoking a host-specific utility.
+CURRENT_PATH := $(patsubst $(TOP)/%,%,$(CURDIR))
 endif
 #$(info Path from top is $(CURRENT_PATH))

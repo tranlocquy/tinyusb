@@ -69,6 +69,11 @@ CFLAGS += $(SECTION_CFLAGS) -DSTM32H7A3NUCLEO -DHAVE_ATOMIC_COMPARE_EXCHANGE=1
 # LDFLAGS += -Wl,--no-warn-rwx-segment
 endif
 
+ifeq ($(BOARD),stm32h725zgt6)
+INC += $(TOP)/examples/device/superdfu/inc
+CFLAGS += $(SECTION_CFLAGS) -DSTM32H725ZGT6 -DHAVE_ATOMIC_COMPARE_EXCHANGE=1
+endif
+
 ifeq ($(BOARD),d5035_04)
 INC += $(TOP)/examples/device/superdfu/inc
 CFLAGS += -DCFG_TUSB_ENDPOINT_LIMIT=3 \
@@ -121,4 +126,3 @@ LDFLAGS += -Wl,--undefined=vTaskSwitchContext
 
 include ../../rules.mk
 include $(TOP)/examples/device/superdfu/src/dfu.mk
-

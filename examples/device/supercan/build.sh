@@ -329,7 +329,7 @@ EOF
 ##########################
 
 
-boards="stm32h7a3nucleo stm32f303disco teensy_40 d5035_03"
+boards="stm32h7a3nucleo stm32h725zgt6 stm32f303disco teensy_40 d5035_03"
 for board in $boards; do
 	export BOARD=$board
 
@@ -538,4 +538,3 @@ done
 cd $target_dir && (tar c supercan | pixz -9 >supercan-firmware.tar.xz)
 
 echo A-OK
-
