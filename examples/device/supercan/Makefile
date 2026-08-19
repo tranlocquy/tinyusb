@@ -104,6 +104,41 @@ BUILD := $(BUILD)-hse25
 endif
 endif
 
+ifeq ($(BOARD),stm32h735zgt6)
+STM32H735_FDCAN_COUNT ?= 2
+STM32H735_USE_HSE ?= 0
+ifneq ($(STM32H735_FDCAN_COUNT),1)
+ifneq ($(STM32H735_FDCAN_COUNT),2)
+ifneq ($(STM32H735_FDCAN_COUNT),3)
+$(error STM32H735_FDCAN_COUNT must be 1, 2, or 3)
+endif
+endif
+endif
+ifneq ($(STM32H735_USE_HSE),0)
+ifneq ($(STM32H735_USE_HSE),1)
+$(error STM32H735_USE_HSE must be exactly 0 or 1)
+endif
+endif
+
+INC += $(TOP)/examples/device/superdfu/inc
+CFLAGS += $(SECTION_CFLAGS) -DSTM32H735ZGT6 \
+	-DSTM32H735_FDCAN_COUNT=$(STM32H735_FDCAN_COUNT) \
+	-DHAVE_ATOMIC_COMPARE_EXCHANGE=1
+
+# Keep objects built with non-default channel counts separate. GNU make does
+# not track command-line flag changes as dependencies, so sharing a build
+# directory can otherwise reuse objects compiled for another channel count.
+ifeq ($(STM32H735_FDCAN_COUNT),1)
+BUILD := _build/$(BOARD)-fdcan1
+endif
+ifeq ($(STM32H735_FDCAN_COUNT),3)
+BUILD := _build/$(BOARD)-fdcan3
+endif
+ifeq ($(STM32H735_USE_HSE),1)
+BUILD := $(BUILD)-hse25
+endif
+endif
+
 ifeq ($(BOARD),d5035_04)
 INC += $(TOP)/examples/device/superdfu/inc
 CFLAGS += -DCFG_TUSB_ENDPOINT_LIMIT=3 \

@@ -329,7 +329,7 @@ EOF
 ##########################
 
 
-boards="stm32h7a3nucleo stm32h725zgt6 stm32f303disco teensy_40 d5035_03"
+boards="stm32h7a3nucleo stm32h725zgt6 stm32h735zgt6 stm32f303disco teensy_40 d5035_03"
 for board in $boards; do
 	export BOARD=$board
 
@@ -340,6 +340,10 @@ for board in $boards; do
 		# Release artifacts remain the default dual-channel, internal-HSI
 		# configuration even when the caller has inherited H725 build options.
 		make $MAKE_ARGS STM32H725_FDCAN_COUNT=2 STM32H725_USE_HSE=0
+	elif [ "$BOARD" = "stm32h735zgt6" ]; then
+		# Release artifacts remain the default dual-channel, internal-HSI
+		# configuration even when the caller has inherited H735 build options.
+		make $MAKE_ARGS STM32H735_FDCAN_COUNT=2 STM32H735_USE_HSE=0
 	else
 		make $MAKE_ARGS
 	fi

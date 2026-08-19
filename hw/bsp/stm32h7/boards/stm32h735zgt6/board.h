@@ -22,13 +22,13 @@ extern "C" {
 #define UART_TX_PIN           GPIO_PIN_8
 #define UART_RX_PIN           GPIO_PIN_9
 
-/* This target is device-only and does not require PA9 VBUS sensing. */
+/* This bus-powered/always-attached target does not use PA9 VBUS sensing. */
 #define OTG_FS_VBUS_SENSE     0
 #define OTG_HS_VBUS_SENSE     0
 
 /*
- * STM32H725 exposes the internal full-speed PHY through the USB1 OTG HS
- * controller.  The pinned TinyUSB STM32H7 family BSP names root hub port 0
+ * STM32H735 exposes the internal full-speed PHY through the USB1 OTG HS
+ * controller. The pinned TinyUSB STM32H7 family BSP names root hub port 0
  * after USB2 OTG FS, so provide the aliases it expects.
  */
 #define OTG_HS_USE_FS_PHY 1
@@ -37,16 +37,16 @@ extern "C" {
 #define GPIO_AF10_OTG2_HS                    GPIO_AF10_OTG1_HS
 #define __HAL_RCC_USB2_OTG_FS_CLK_ENABLE     __HAL_RCC_USB1_OTG_HS_CLK_ENABLE
 
-#ifndef STM32H725_USE_HSE
-#define STM32H725_USE_HSE 0
+#ifndef STM32H735_USE_HSE
+#define STM32H735_USE_HSE 0
 #endif
 
-#if STM32H725_USE_HSE != 0 && STM32H725_USE_HSE != 1
-#error STM32H725_USE_HSE must be exactly 0 or 1
+#if STM32H735_USE_HSE != 0 && STM32H735_USE_HSE != 1
+#error STM32H735_USE_HSE must be exactly 0 or 1
 #endif
 
-#if STM32H725_USE_HSE && HSE_VALUE != 25000000
-#error STM32H725_USE_HSE requires a 25 MHz HSE_VALUE
+#if STM32H735_USE_HSE && HSE_VALUE != 25000000
+#error STM32H735_USE_HSE requires a 25 MHz HSE_VALUE
 #endif
 
 //--------------------------------------------------------------------+
@@ -61,22 +61,22 @@ static inline void board_stm32h7_clock_init(void)
   /*
    * The default build assumes the customary LDO hardware configuration:
    * VDDLDO is supplied and VCAP is decoupled per the datasheet. A board wired
-   * for the internal SMPS must override STM32H725_SUPPLY at build time with
+   * for the internal SMPS must override STM32H735_SUPPLY at build time with
    * the HAL supply mode that matches its schematic.
    */
-  if (HAL_PWREx_ConfigSupply(STM32H725_SUPPLY) != HAL_OK)
+  if (HAL_PWREx_ConfigSupply(STM32H735_SUPPLY) != HAL_OK)
   {
     while (1) {}
   }
 
   /*
-   * VOS2 permits a 300 MHz CPU and 150 MHz AXI/AHB clock on STM32H725.
+   * VOS2 permits a 300 MHz CPU and 150 MHz AXI/AHB clock on STM32H735.
    * The clocks below are therefore comfortably inside their limits.
    */
   __HAL_PWR_VOLTAGESCALING_CONFIG(PWR_REGULATOR_VOLTAGE_SCALE2);
   while (!__HAL_PWR_GET_FLAG(PWR_FLAG_VOSRDY)) {}
 
-#if STM32H725_USE_HSE
+#if STM32H735_USE_HSE
   /*
    * Crystal mode: HSE25 / 5 = 5 MHz PLL input, * 48 = 240 MHz VCO,
    * / 2 = 120 MHz PLL1 P output (SYSCLK). HSI48 remains the USB source.
@@ -150,11 +150,11 @@ static inline void board_stm32h7_clock_init(void)
 
   /*
    * Default: VDD33USB is supplied externally and the internal regulator stays
-   * off. Set STM32H725_USB_INTERNAL_REGULATOR=1 only when VDD50USB/VDD33USB
+   * off. Set STM32H735_USB_INTERNAL_REGULATOR=1 only when VDD50USB/VDD33USB
    * follow ST's internal-regulator wiring; enabling it against an external
    * 3.3 V source would create supply contention.
    */
-#if STM32H725_USB_INTERNAL_REGULATOR
+#if STM32H735_USB_INTERNAL_REGULATOR
   if (HAL_PWREx_EnableUSBReg() != HAL_OK)
   {
     while (1) {}

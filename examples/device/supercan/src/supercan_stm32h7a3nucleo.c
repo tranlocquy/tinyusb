@@ -7,7 +7,21 @@
 
 #include <supercan_board.h>
 
-#if STM32H7A3NUCLEO || STM32H725ZGT6
+#if STM32H725ZGT6 || STM32H735ZGT6
+#define STM32H7X5_SUPERCAN 1
+#else
+#define STM32H7X5_SUPERCAN 0
+#endif
+
+#if STM32H725ZGT6
+#define STM32H7X5_USE_HSE STM32H725_USE_HSE
+#elif STM32H735ZGT6
+#define STM32H7X5_USE_HSE STM32H735_USE_HSE
+#else
+#define STM32H7X5_USE_HSE 0
+#endif
+
+#if STM32H7A3NUCLEO || STM32H7X5_SUPERCAN
 
 #include <supercan_debug.h>
 #include <leds.h>
@@ -18,11 +32,14 @@
 
 #include <tusb.h>
 #include <stm32h7xx_hal.h> // for stm32h7xx_hal_cortex.h to have NVIC_PRIORITYGROUP_4
+#if STM32H7X5_SUPERCAN
+#include <stm32h7xx_hal_fdcan.h> // for FDCAN_CLOCK_DIV2
+#endif
 
-// Shared application implementation for the H7A3 Nucleo and STM32H725ZGT6
-// targets. The H725 adds two more FDCAN channels and partitions the fixed shared
-// message RAM between the enabled controllers. Clock selection is handled per RCC
-// generation below.
+// Shared application implementation for the H7A3 Nucleo and STM32H725/735ZGT6
+// targets. The H7x5 targets add two more FDCAN channels and partition the fixed
+// shared message RAM between the enabled controllers. Clock selection is handled
+// per RCC generation below.
 
 
 #define PORT_SHIFT 4
@@ -98,7 +115,7 @@ void MemMang_Handler(void)
 	HARDFAULT_HANDLING_ASM();
 }
 
-#if STM32H725ZGT6
+#if STM32H7X5_SUPERCAN
 static bool pll2_wait_ready(bool ready)
 {
 	// PLL lock/unlock is specified in microseconds. A core-clock-scaled bounded
@@ -116,7 +133,7 @@ static bool pll2_wait_ready(bool ready)
 
 __attribute__((noreturn)) static void fdcan_clock_failed(void)
 {
-	LOG("failed to configure 60 MHz FDCAN clock\n");
+	LOG("failed to configure 80 MHz FDCAN kernel clock\n");
 	NVIC_SystemReset();
 	while (1);
 }
@@ -124,8 +141,8 @@ __attribute__((noreturn)) static void fdcan_clock_failed(void)
 static void fdcan_clock_init(void)
 {
 	// PLL2 shares PLLSRC with PLL1, so it must use the oscillator selected by
-	// the STM32H725ZGT6 BSP for the system-clock PLL.
-#if STM32H725_USE_HSE
+	// the STM32H7x5 BSP for the system-clock PLL.
+#if STM32H7X5_USE_HSE
 	if (__HAL_RCC_GET_PLL_OSCSOURCE() != RCC_PLLSOURCE_HSE) {
 		fdcan_clock_failed();
 	}
@@ -141,15 +158,15 @@ static void fdcan_clock_init(void)
 	}
 
 	__HAL_RCC_PLL2CLKOUT_DISABLE(RCC_PLL2_DIVP | RCC_PLL2_DIVQ | RCC_PLL2_DIVR);
-#if STM32H725_USE_HSE
-	// HSE25 / M5 * N48 / Q4 = 60 MHz. The 5 MHz VCI is in range 2 and
+#if STM32H7X5_USE_HSE
+	// HSE25 / M5 * N48 / Q3 = 80 MHz. The 5 MHz VCI is in range 2 and
 	// produces a legal 240 MHz wide VCO.
-	__HAL_RCC_PLL2_CONFIG(5, 48, 1, 4, 1);
+	__HAL_RCC_PLL2_CONFIG(5, 48, 1, 3, 1);
 	__HAL_RCC_PLL2_VCIRANGE(RCC_PLL2VCIRANGE_2);
 #else
-	// HSI64 / M4 * N15 / Q4 = 60 MHz. The 16 MHz VCI is in range 3 and
+	// HSI64 / M4 * N15 / Q3 = 80 MHz. The 16 MHz VCI is in range 3 and
 	// produces a legal 240 MHz wide VCO.
-	__HAL_RCC_PLL2_CONFIG(4, 15, 1, 4, 1);
+	__HAL_RCC_PLL2_CONFIG(4, 15, 1, 3, 1);
 	__HAL_RCC_PLL2_VCIRANGE(RCC_PLL2VCIRANGE_3);
 #endif
 	__HAL_RCC_PLL2_VCORANGE(RCC_PLL2VCOWIDE);
@@ -162,7 +179,7 @@ static void fdcan_clock_init(void)
 		fdcan_clock_failed();
 	}
 
-	// For STM32H725xx this macro selects PLL2Q through D2CCIP1R.FDCANSEL.
+	// For STM32H725/735xx this selects PLL2Q through D2CCIP1R.FDCANSEL.
 	__HAL_RCC_FDCAN_CONFIG(RCC_FDCANCLKSOURCE_PLL2);
 }
 #endif
@@ -176,10 +193,10 @@ enum {
 	FDCAN1_TX_FIFO_OFFSET = FDCAN1_RX_FIFO_OFFSET + FDCAN_RX_FIFO_BYTES,
 	FDCAN1_TXE_FIFO_OFFSET = FDCAN1_TX_FIFO_OFFSET + FDCAN_TX_FIFO_BYTES,
 	FDCAN1_RAM_END_OFFSET = FDCAN1_TXE_FIFO_OFFSET + FDCAN_TXE_FIFO_BYTES,
-#if STM32H725ZGT6
-	STM32H725_SRAMCAN_BYTES = 0x2800,
+#if STM32H7X5_SUPERCAN
+	STM32H7X5_SRAMCAN_BYTES = 0x2800,
 #endif
-#if STM32H725ZGT6 && SC_BOARD_CAN_COUNT > 1
+#if STM32H7X5_SUPERCAN && SC_BOARD_CAN_COUNT > 1
 	FDCAN2_RX_FIFO_OFFSET = FDCAN1_RAM_END_OFFSET,
 	FDCAN2_TX_FIFO_OFFSET = FDCAN2_RX_FIFO_OFFSET + FDCAN_RX_FIFO_BYTES,
 	FDCAN2_TXE_FIFO_OFFSET = FDCAN2_TX_FIFO_OFFSET + FDCAN_TX_FIFO_BYTES,
@@ -198,10 +215,10 @@ enum {
 #endif
 };
 
-#if STM32H725ZGT6
+#if STM32H7X5_SUPERCAN
 _Static_assert(SC_BOARD_CAN_COUNT == 1 || SC_BOARD_CAN_COUNT == 2 || SC_BOARD_CAN_COUNT == 3,
-	"STM32H725ZGT6 requires one, two, or three CAN channels");
-_Static_assert(FDCAN_RAM_END_OFFSET <= STM32H725_SRAMCAN_BYTES, "FDCAN message RAM exceeds SRAMCAN");
+	"STM32H725/735ZGT6 requires one, two, or three CAN channels");
+_Static_assert(FDCAN_RAM_END_OFFSET <= STM32H7X5_SRAMCAN_BYTES, "FDCAN message RAM exceeds SRAMCAN");
 _Static_assert((FDCAN_RAM_END_OFFSET & 3) == 0, "FDCAN message RAM must be word aligned");
 #if SC_BOARD_CAN_COUNT == 1
 _Static_assert(MCAN_HW_RX_FIFO_SIZE == 64, "Single-FDCAN RX FIFO must contain 64 elements");
@@ -252,7 +269,7 @@ static const struct fdcan_channel_config fdcan_channels[] = {
 		.led_status_green = LED_CAN0_STATUS_GREEN,
 		.led_status_red = LED_CAN0_STATUS_RED,
 	},
-#if STM32H725ZGT6 && SC_BOARD_CAN_COUNT > 1
+#if STM32H7X5_SUPERCAN && SC_BOARD_CAN_COUNT > 1
 	{
 		.m_can = (MCanX *)FDCAN2,
 		.interrupt_id = FDCAN2_IT0_IRQn,
@@ -264,7 +281,7 @@ static const struct fdcan_channel_config fdcan_channels[] = {
 		.led_status_red = SC_BOARD_LED_COUNT,
 	},
 #endif
-#if STM32H725ZGT6 && SC_BOARD_CAN_COUNT > 2
+#if STM32H7X5_SUPERCAN && SC_BOARD_CAN_COUNT > 2
 	{
 		.m_can = (MCanX *)FDCAN3,
 		.interrupt_id = FDCAN3_IT0_IRQn,
@@ -285,8 +302,8 @@ static void can_init(void)
 {
 	const uint32_t gpio_af_fdcan1 = GPIO_AF9_FDCAN1;
 
-#if STM32H725ZGT6
-	/* DS13311, STM32H725ZGT6 LQFP144:
+#if STM32H7X5_SUPERCAN
+	/* DS13311/DS13312, STM32H725/735ZGT6 LQFP144:
 	 *   FDCAN1_RX PB8 (pin 136), FDCAN1_TX PB9 (pin 137)
 	 *   FDCAN2_RX PB5 (pin 132), FDCAN2_TX PB6 (pin 133), when enabled
 	 *   FDCAN3_RX PG10 (pin 123), FDCAN3_TX PG9 (pin 122), when enabled. */
@@ -353,9 +370,9 @@ static void can_init(void)
 		| (GPIO_MODE_AF_PP << GPIO_MODER_MODE1_Pos);
 #endif
 
-	// Configure the target-specific PLL2 FDCAN kernel clock. The H725 path
+	// Configure the target-specific PLL2 FDCAN kernel clock. The H7x5 path
 	// follows the BSP-selected PLL source; the H7A3 path uses HSI64 below.
-#if STM32H725ZGT6
+#if STM32H7X5_SUPERCAN
 	fdcan_clock_init();
 #else
 	RCC->CR &= ~RCC_CR_PLL2ON;
@@ -422,7 +439,7 @@ static void can_init(void)
 		m_can_conf_begin(can->m_can);
 	}
 
-#if STM32H725ZGT6
+#if STM32H7X5_SUPERCAN
 	/* AN5348 requires every allocated FDCAN message-RAM word to be
 	 * initialized before use. All selected controllers are held in INIT here. */
 	volatile uint32_t *message_ram = (volatile uint32_t *)SRAMCAN_BASE;
@@ -432,10 +449,16 @@ static void can_init(void)
 	__DSB();
 #endif
 
-	// Setup shared clock calibration unit (CCU) for bypass.
-	// FDCAN1 owns the CCU write protection and is in INIT/CCE here.
+	// Setup the shared clock calibration unit (CCU) for bypass. FDCAN1 owns
+	// the CCU write protection and is in INIT/CCE here. H7x5 divides the
+	// 80 MHz kernel clock to a 40 MHz time-quanta clock so fdcan_tq_ck stays
+	// below its 60 MHz APB peripheral clock.
 	FDCAN_CCU->CCFG = FDCANCCU_CCFG_SWR;
+#if STM32H7X5_SUPERCAN
+	FDCAN_CCU->CCFG = FDCANCCU_CCFG_BCC | FDCAN_CLOCK_DIV2;
+#else
 	FDCAN_CCU->CCFG = FDCANCCU_CCFG_BCC;
+#endif
 	LOG("CCU CCFG=%08lx\n", FDCAN_CCU->CCFG);
 
 	for (size_t i = 0; i < TU_ARRAY_SIZE(fdcan_channels); ++i) {
@@ -657,7 +680,7 @@ SC_RAMFUNC void FDCAN1_IT0_IRQHandler(void)
 	mcan_can_int(0);
 }
 
-#if STM32H725ZGT6 && SC_BOARD_CAN_COUNT > 1
+#if STM32H7X5_SUPERCAN && SC_BOARD_CAN_COUNT > 1
 SC_RAMFUNC void FDCAN2_IT0_IRQHandler(void)
 {
 	// LOG("FDCAN2_IT0 int\n");
@@ -666,7 +689,7 @@ SC_RAMFUNC void FDCAN2_IT0_IRQHandler(void)
 }
 #endif
 
-#if STM32H725ZGT6 && SC_BOARD_CAN_COUNT > 2
+#if STM32H7X5_SUPERCAN && SC_BOARD_CAN_COUNT > 2
 SC_RAMFUNC void FDCAN3_IT0_IRQHandler(void)
 {
 	// LOG("FDCAN3_IT0 int\n");
@@ -683,4 +706,4 @@ SC_RAMFUNC void TIM2_IRQHandler(void)
 	TIM2->SR = 0;
 }
 
-#endif // #if STM32H7A3NUCLEO || STM32H725ZGT6
+#endif // #if STM32H7A3NUCLEO || STM32H7X5_SUPERCAN
