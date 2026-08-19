@@ -31,6 +31,30 @@
 #include "bsp/board.h"
 #include "board.h"
 
+#ifndef BOARD_BSP_LED_ENABLED
+  #define BOARD_BSP_LED_ENABLED 1
+#endif
+
+#ifndef BOARD_BSP_BUTTON_ENABLED
+  #define BOARD_BSP_BUTTON_ENABLED 1
+#endif
+
+#ifndef BOARD_BSP_UART_ENABLED
+  #define BOARD_BSP_UART_ENABLED 1
+#endif
+
+#if (BOARD_BSP_LED_ENABLED != 0) && (BOARD_BSP_LED_ENABLED != 1)
+  #error BOARD_BSP_LED_ENABLED must be exactly 0 or 1
+#endif
+
+#if (BOARD_BSP_BUTTON_ENABLED != 0) && (BOARD_BSP_BUTTON_ENABLED != 1)
+  #error BOARD_BSP_BUTTON_ENABLED must be exactly 0 or 1
+#endif
+
+#if (BOARD_BSP_UART_ENABLED != 0) && (BOARD_BSP_UART_ENABLED != 1)
+  #error BOARD_BSP_UART_ENABLED must be exactly 0 or 1
+#endif
+
 #ifndef OTG_HS_USE_FS_PHY
   #define OTG_HS_USE_FS_PHY 0
 #endif
@@ -62,6 +86,7 @@ void OTG_HS_IRQHandler(void)
 // MACRO TYPEDEF CONSTANT ENUM
 //--------------------------------------------------------------------+
 
+#if BOARD_BSP_UART_ENABLED
 UART_HandleTypeDef UartHandle;
 
 
@@ -84,6 +109,7 @@ static inline void uart_send_str(const char* text)
     tx_char(*text++);
 	}
 }
+#endif
 
 // static inline void uart_send_buffer(uint8_t const *text, size_t len)
 // {
@@ -106,9 +132,15 @@ void board_init(void)
   // Enable All GPIOs clocks
   __HAL_RCC_GPIOA_CLK_ENABLE();
   __HAL_RCC_GPIOB_CLK_ENABLE(); // USB ULPI NXT
+#if BOARD_BSP_BUTTON_ENABLED
   __HAL_RCC_GPIOC_CLK_ENABLE(); // USB ULPI NXT
+#endif
+#if BOARD_BSP_UART_ENABLED
   __HAL_RCC_GPIOD_CLK_ENABLE();
+#endif
+#if BOARD_BSP_LED_ENABLED
   __HAL_RCC_GPIOE_CLK_ENABLE();
+#endif
   __HAL_RCC_GPIOF_CLK_ENABLE();
   __HAL_RCC_GPIOG_CLK_ENABLE();
   __HAL_RCC_GPIOH_CLK_ENABLE(); // USB ULPI NXT
@@ -118,7 +150,9 @@ void board_init(void)
   __HAL_RCC_GPIOJ_CLK_ENABLE();
 
   // Enable UART Clock
+#if BOARD_BSP_UART_ENABLED
   UART_CLK_EN();
+#endif
 
 #if CFG_TUSB_OS == OPT_OS_NONE
   // 1ms tick timer
@@ -138,20 +172,25 @@ void board_init(void)
   GPIO_InitTypeDef  GPIO_InitStruct;
 
   // LED
+#if BOARD_BSP_LED_ENABLED
   GPIO_InitStruct.Pin   = LED_PIN;
   GPIO_InitStruct.Mode  = GPIO_MODE_OUTPUT_PP;
   GPIO_InitStruct.Pull  = GPIO_PULLUP;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_HIGH;
   HAL_GPIO_Init(LED_PORT, &GPIO_InitStruct);
+#endif
 
   // Button
+#if BOARD_BSP_BUTTON_ENABLED
   GPIO_InitStruct.Pin   = BUTTON_PIN;
   GPIO_InitStruct.Mode  = GPIO_MODE_INPUT;
   GPIO_InitStruct.Pull  = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_HIGH;
   HAL_GPIO_Init(BUTTON_PORT, &GPIO_InitStruct);
+#endif
 
   // Uart
+#if BOARD_BSP_UART_ENABLED
   GPIO_InitStruct.Pin       = UART_TX_PIN | UART_RX_PIN;
   GPIO_InitStruct.Mode      = GPIO_MODE_AF_PP;
   GPIO_InitStruct.Pull      = GPIO_PULLUP;
@@ -168,6 +207,7 @@ void board_init(void)
   UartHandle.Init.Mode       = UART_MODE_TX_RX;
   UartHandle.Init.OverSampling = UART_OVERSAMPLING_16;
   HAL_UART_Init(&UartHandle);
+#endif
 
 #if BOARD_DEVICE_RHPORT_NUM == 0
   // Despite being call USB2_OTG
@@ -268,12 +308,20 @@ void board_init(void)
 
 void board_led_write(bool state)
 {
+#if BOARD_BSP_LED_ENABLED
   HAL_GPIO_WritePin(LED_PORT, LED_PIN, state ? LED_STATE_ON : (1-LED_STATE_ON));
+#else
+  (void) state;
+#endif
 }
 
 uint32_t board_button_read(void)
 {
+#if BOARD_BSP_BUTTON_ENABLED
   return (BUTTON_STATE_ACTIVE == HAL_GPIO_ReadPin(BUTTON_PORT, BUTTON_PIN)) ? 1 : 0;
+#else
+  return 0;
+#endif
 }
 
 int board_uart_read(uint8_t* buf, int len)
@@ -284,12 +332,18 @@ int board_uart_read(uint8_t* buf, int len)
 
 int board_uart_write(void const * buf, int len)
 {
+#if BOARD_BSP_UART_ENABLED
   if (len < 0) {
 		uart_send_str(buf);
 	} else {
 		uart_send_buffer(buf, len);
 	}
 	return len;
+#else
+  (void) buf;
+  (void) len;
+  return 0;
+#endif
 }
 
 

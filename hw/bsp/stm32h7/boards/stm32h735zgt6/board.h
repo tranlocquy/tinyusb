@@ -7,6 +7,11 @@
 extern "C" {
 #endif
 
+/* Keep the custom-board-only pins at their reset state in the generic BSP. */
+#define BOARD_BSP_LED_ENABLED     0
+#define BOARD_BSP_BUTTON_ENABLED  0
+#define BOARD_BSP_UART_ENABLED    0
+
 #define LED_PORT              GPIOE
 #define LED_PIN               GPIO_PIN_1
 #define LED_STATE_ON          1

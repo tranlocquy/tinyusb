@@ -42,6 +42,7 @@
 // per RCC generation below.
 
 
+#if !STM32H735ZGT6
 #define PORT_SHIFT 4
 #define PIN_MASK 15
 #define MAKE_PIN(port, pin) (((port) << PORT_SHIFT) | (pin))
@@ -50,6 +51,7 @@
 #define PIN_PB14 MAKE_PIN(1, 14)
 
 #define PIN_PE01 MAKE_PIN(4, 1)
+#endif
 
 
 // NOTE: If you are using CMSIS, the registers can also be
@@ -266,8 +268,14 @@ static const struct fdcan_channel_config fdcan_channels[] = {
 		.rx_fifo_offset = FDCAN1_RX_FIFO_OFFSET,
 		.tx_fifo_offset = FDCAN1_TX_FIFO_OFFSET,
 		.txe_fifo_offset = FDCAN1_TXE_FIFO_OFFSET,
+#if STM32H735ZGT6
+		// The H735 target does not drive direct GPIO status LEDs.
+		.led_status_green = SC_BOARD_LED_COUNT,
+		.led_status_red = SC_BOARD_LED_COUNT,
+#else
 		.led_status_green = LED_CAN0_STATUS_GREEN,
 		.led_status_red = LED_CAN0_STATUS_RED,
+#endif
 	},
 #if STM32H7X5_SUPERCAN && SC_BOARD_CAN_COUNT > 1
 	{
@@ -522,6 +530,7 @@ static inline void counter_1mhz_init(void)
 		| TIM_CR1_CEN;
 }
 
+#if !STM32H735ZGT6
 struct led {
 	uint8_t port_pin_mux;
 };
@@ -535,9 +544,11 @@ static const struct led leds[] = {
 	LED_STATIC_INITIALIZER("can0_green", PIN_PB00), // green
 	LED_STATIC_INITIALIZER("can0_red", PIN_PB14), // red
 };
+#endif
 
 static inline void leds_init(void)
 {
+#if !STM32H735ZGT6
 	// enable clock to GPIO block B, E
 	RCC->AHB4ENR |= RCC_AHB4ENR_GPIOBEN | RCC_AHB4ENR_GPIOEEN;
 
@@ -563,10 +574,15 @@ static inline void leds_init(void)
   	(GPIOE->MODER & ~(
 		GPIO_MODER_MODE1))
 	| (GPIO_MODE_OUTPUT_PP << GPIO_MODER_MODE1_Pos);
+#endif
 }
 
 extern void sc_board_led_set(uint8_t index, bool on)
 {
+#if STM32H735ZGT6
+	(void)index;
+	(void)on;
+#else
 	SC_DEBUG_ASSERT(index < TU_ARRAY_SIZE(leds));
 
 	unsigned mux = leds[index].port_pin_mux;
@@ -576,13 +592,16 @@ extern void sc_board_led_set(uint8_t index, bool on)
 	GPIO_TypeDef *gpio = (GPIO_TypeDef *)(GPIOA_BASE + (0x00000400UL * port));
 
 	gpio->BSRR = UINT32_C(1) << (pin + (!on) * 16);
+#endif
 }
 
 extern void sc_board_leds_on_unsafe(void)
 {
+#if !STM32H735ZGT6
 	for (size_t i = 0; i < TU_ARRAY_SIZE(leds); ++i) {
 		sc_board_led_set(i, 1);
 	}
+#endif
 }
 
 
@@ -599,12 +618,18 @@ extern void sc_board_init_begin(void)
 
 extern void sc_board_init_end(void)
 {
+#if !STM32H735ZGT6
 	led_blink(0, 2000);
+#endif
 	NVIC_SetPriorityGrouping(NVIC_PRIORITYGROUP_4);
 }
 
 SC_RAMFUNC extern void sc_board_led_can_status_set(uint8_t index, int status)
 {
+#if STM32H735ZGT6
+	(void)index;
+	(void)status;
+#else
 	SC_DEBUG_ASSERT(index < TU_ARRAY_SIZE(mcan_cans));
 	if (index >= TU_ARRAY_SIZE(mcan_cans)) {
 		return;
@@ -652,6 +677,7 @@ SC_RAMFUNC extern void sc_board_led_can_status_set(uint8_t index, int status)
 		led_blink(can->led_status_red, SC_CAN_LED_BLINK_DELAY_ACTIVE_MS / 2);
 		break;
 	}
+#endif
 }
 
 __attribute__((noreturn)) extern void sc_board_reset(void)
