@@ -275,7 +275,7 @@ static void can_init(void)
 	/* DS13311, STM32H725ZGT6 LQFP144:
 	 *   FDCAN1_RX PB8 (pin 136), FDCAN1_TX PB9 (pin 137)
 	 *   FDCAN2_RX PB5 (pin 132), FDCAN2_TX PB6 (pin 133), when enabled
-	 *   FDCAN3_RX PF6 (pin 20), FDCAN3_TX PF7 (pin 21), when enabled. */
+	 *   FDCAN3_RX PG10 (pin 123), FDCAN3_TX PG9 (pin 122), when enabled. */
 #if SC_BOARD_CAN_COUNT > 1
 	const uint32_t gpio_af_fdcan2 = GPIO_AF9_FDCAN2;
 #endif
@@ -285,7 +285,7 @@ static void can_init(void)
 
 	RCC->AHB4ENR |= RCC_AHB4ENR_GPIOBEN;
 #if SC_BOARD_CAN_COUNT > 2
-	RCC->AHB4ENR |= RCC_AHB4ENR_GPIOFEN;
+	RCC->AHB4ENR |= RCC_AHB4ENR_GPIOGEN;
 #endif
 
 #if SC_BOARD_CAN_COUNT > 1
@@ -312,15 +312,15 @@ static void can_init(void)
 		| (GPIO_MODE_AF_PP << GPIO_MODER_MODE6_Pos);
 #endif
 #if SC_BOARD_CAN_COUNT > 2
-	GPIOF->AFR[0] =
-		(GPIOF->AFR[0] & ~(GPIO_AFRL_AFSEL6 | GPIO_AFRL_AFSEL7))
-		| (gpio_af_fdcan3 << GPIO_AFRL_AFSEL6_Pos)
-		| (gpio_af_fdcan3 << GPIO_AFRL_AFSEL7_Pos);
+	GPIOG->AFR[1] =
+		(GPIOG->AFR[1] & ~(GPIO_AFRH_AFSEL9 | GPIO_AFRH_AFSEL10))
+		| (gpio_af_fdcan3 << GPIO_AFRH_AFSEL9_Pos)
+		| (gpio_af_fdcan3 << GPIO_AFRH_AFSEL10_Pos);
 
-	GPIOF->MODER =
-		(GPIOF->MODER & ~(GPIO_MODER_MODE6 | GPIO_MODER_MODE7))
-		| (GPIO_MODE_AF_PP << GPIO_MODER_MODE6_Pos)
-		| (GPIO_MODE_AF_PP << GPIO_MODER_MODE7_Pos);
+	GPIOG->MODER =
+		(GPIOG->MODER & ~(GPIO_MODER_MODE9 | GPIO_MODER_MODE10))
+		| (GPIO_MODE_AF_PP << GPIO_MODER_MODE9_Pos)
+		| (GPIO_MODE_AF_PP << GPIO_MODER_MODE10_Pos);
 #endif
 #else
 	/* NUCLEO-H7A3ZI-Q: FDCAN1_RX PD0 and FDCAN1_TX PD1. */
