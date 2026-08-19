@@ -40,8 +40,8 @@
 #	error "Define SC_BOARD_CAN_COUNT!"
 #endif
 
-#if SC_BOARD_CAN_COUNT > 2
-#	error "Only 2 CAN interfaces supported"
+#if SC_BOARD_CAN_COUNT > 3
+#	error "Only 3 CAN interfaces supported"
 #endif
 
 
@@ -109,6 +109,13 @@ static uint8_t const desc_configuration[] =
 	7, TUSB_DESC_ENDPOINT, SC_M1_EP_CMD1_BULK_IN, TUSB_XFER_BULK, U16_TO_U8S_LE(SC_M1_EP_SIZE), 0,
 	7, TUSB_DESC_ENDPOINT, SC_M1_EP_MSG1_BULK_OUT, TUSB_XFER_BULK, U16_TO_U8S_LE(SC_M1_EP_SIZE), 0,
 	7, TUSB_DESC_ENDPOINT, SC_M1_EP_MSG1_BULK_IN, TUSB_XFER_BULK, U16_TO_U8S_LE(SC_M1_EP_SIZE), 0,
+#endif
+#if SC_BOARD_CAN_COUNT > 2
+	9, TUSB_DESC_INTERFACE, 2, 0, 4, TUSB_CLASS_VENDOR_SPECIFIC, 0x00, 0x00, 6,
+	7, TUSB_DESC_ENDPOINT, SC_M1_EP_CMD2_BULK_OUT, TUSB_XFER_BULK, U16_TO_U8S_LE(SC_M1_EP_SIZE), 0,
+	7, TUSB_DESC_ENDPOINT, SC_M1_EP_CMD2_BULK_IN, TUSB_XFER_BULK, U16_TO_U8S_LE(SC_M1_EP_SIZE), 0,
+	7, TUSB_DESC_ENDPOINT, SC_M1_EP_MSG2_BULK_OUT, TUSB_XFER_BULK, U16_TO_U8S_LE(SC_M1_EP_SIZE), 0,
+	7, TUSB_DESC_ENDPOINT, SC_M1_EP_MSG2_BULK_IN, TUSB_XFER_BULK, U16_TO_U8S_LE(SC_M1_EP_SIZE), 0,
 #endif
 
 #if CFG_TUD_DFU_RUNTIME
@@ -201,6 +208,27 @@ uint8_t const desc_ms_os_20[] =
 	'B', 0x00, '3', 0x00, '1', 0x00, '4', 0x00, '9', 0x00, 'C', 0x00, '9', 0x00, '}', 0x00, 0x00, 0x00, 0x00, 0x00,
 #endif
 
+#if SC_BOARD_CAN_COUNT > 2
+	// Function Subset header: length, type, first interface, reserved, subset length
+	U16_TO_U8S_LE(0x0008), U16_TO_U8S_LE(MS_OS_20_SUBSET_HEADER_FUNCTION), 2, 0, U16_TO_U8S_LE(0x08 + MS_OS_20_FEATURE_COMPATBLE_ID_DESC_LEN + 0x84),
+
+	// MS OS 2.0 Compatible ID descriptor: length, type, compatible ID, sub compatible ID
+	U16_TO_U8S_LE(MS_OS_20_FEATURE_COMPATBLE_ID_DESC_LEN), U16_TO_U8S_LE(MS_OS_20_FEATURE_COMPATBLE_ID), 'W', 'I', 'N', 'U', 'S', 'B', 0x00, 0x00,
+	0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // sub-compatible
+
+	// MS OS 2.0 Registry property descriptor: length, type
+	U16_TO_U8S_LE(0x0084), U16_TO_U8S_LE(MS_OS_20_FEATURE_REG_PROPERTY),
+	U16_TO_U8S_LE(0x0007) /* REG_MULTI_SZ */, U16_TO_U8S_LE(0x002A), // wPropertyDataType, wPropertyNameLength and PropertyName "DeviceInterfaceGUIDs\0" in UTF-16
+	'D', 0x00, 'e', 0x00, 'v', 0x00, 'i', 0x00, 'c', 0x00, 'e', 0x00, 'I', 0x00, 'n', 0x00, 't', 0x00, 'e', 0x00,
+	'r', 0x00, 'f', 0x00, 'a', 0x00, 'c', 0x00, 'e', 0x00, 'G', 0x00, 'U', 0x00, 'I', 0x00, 'D', 0x00, 's', 0x00, 0x00, 0x00,
+	U16_TO_U8S_LE(0x0050), // wPropertyDataLength
+	//bPropertyData: “{f4ef82e0-dc07-4f21-8660-ae50cb3149c9}”.
+	'{', 0x00, 'F', 0x00, '4', 0x00, 'E', 0x00, 'F', 0x00, '8', 0x00, '2', 0x00, 'E', 0x00, '0', 0x00, '-', 0x00,
+	'D', 0x00, 'C', 0x00, '0', 0x00, '7', 0x00, '-', 0x00, '4', 0x00, 'F', 0x00, '2', 0x00, '1', 0x00, '-', 0x00,
+	'8', 0x00, '6', 0x00, '6', 0x00, '0', 0x00, '-', 0x00, 'A', 0x00, 'E', 0x00, '5', 0x00, '0', 0x00, 'C', 0x00,
+	'B', 0x00, '3', 0x00, '1', 0x00, '4', 0x00, '9', 0x00, 'C', 0x00, '9', 0x00, '}', 0x00, 0x00, 0x00, 0x00, 0x00,
+#endif
+
 #if CFG_TUD_DFU_RUNTIME
 	DFU_MS_OS_20_SUBSET_HEADER_FUNCTION_DATA(DFU_INTERFACE_INDEX, DFU_MS_OS_20_DESC_LEN),
 	DFU_MS_OS_20_FEATURE_COMPATBLE_ID_DESC_DATA,
@@ -242,6 +270,9 @@ static char const* string_desc_arr [] =
 	"%s " SC_NAME " (%s) CAN ch0",
 #if SC_BOARD_CAN_COUNT > 1
 	"%s " SC_NAME " (%s) CAN ch1",
+#endif
+#if SC_BOARD_CAN_COUNT > 2
+	"%s " SC_NAME " (%s) CAN ch2",
 #endif
 #if CFG_TUD_DFU_RUNTIME
 	"%s " SC_NAME " (%s) DFU",

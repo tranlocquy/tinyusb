@@ -20,8 +20,8 @@
 #include <stm32h7xx_hal.h> // for stm32h7xx_hal_cortex.h to have NVIC_PRIORITYGROUP_4
 
 // Shared application implementation for the H7A3 Nucleo and STM32H725ZGT6
-// targets. The H725 adds a second FDCAN channel and partitions the fixed shared
-// message RAM between both controllers. Clock selection is handled per RCC
+// targets. The H725 adds two more FDCAN channels and partitions the fixed shared
+// message RAM between the enabled controllers. Clock selection is handled per RCC
 // generation below.
 
 
@@ -170,27 +170,50 @@ enum {
 	FDCAN2_TX_FIFO_OFFSET = FDCAN2_RX_FIFO_OFFSET + FDCAN_RX_FIFO_BYTES,
 	FDCAN2_TXE_FIFO_OFFSET = FDCAN2_TX_FIFO_OFFSET + FDCAN_TX_FIFO_BYTES,
 	FDCAN2_RAM_END_OFFSET = FDCAN2_TXE_FIFO_OFFSET + FDCAN_TXE_FIFO_BYTES,
+#if SC_BOARD_CAN_COUNT > 2
+	FDCAN3_RX_FIFO_OFFSET = FDCAN2_RAM_END_OFFSET,
+	FDCAN3_TX_FIFO_OFFSET = FDCAN3_RX_FIFO_OFFSET + FDCAN_RX_FIFO_BYTES,
+	FDCAN3_TXE_FIFO_OFFSET = FDCAN3_TX_FIFO_OFFSET + FDCAN_TX_FIFO_BYTES,
+	FDCAN3_RAM_END_OFFSET = FDCAN3_TXE_FIFO_OFFSET + FDCAN_TXE_FIFO_BYTES,
+	FDCAN_RAM_END_OFFSET = FDCAN3_RAM_END_OFFSET,
+#else
 	FDCAN_RAM_END_OFFSET = FDCAN2_RAM_END_OFFSET,
+#endif
 #else
 	FDCAN_RAM_END_OFFSET = FDCAN1_RAM_END_OFFSET,
 #endif
 };
 
 #if STM32H725ZGT6
-_Static_assert(SC_BOARD_CAN_COUNT == 1 || SC_BOARD_CAN_COUNT == 2,
-	"STM32H725ZGT6 requires one or two CAN channels");
-_Static_assert(MCAN_HW_TX_FIFO_SIZE == 32, "STM32H725ZGT6 TX and TX event FIFOs must contain 32 elements");
+_Static_assert(SC_BOARD_CAN_COUNT == 1 || SC_BOARD_CAN_COUNT == 2 || SC_BOARD_CAN_COUNT == 3,
+	"STM32H725ZGT6 requires one, two, or three CAN channels");
 _Static_assert(FDCAN_RAM_END_OFFSET <= STM32H725_SRAMCAN_BYTES, "FDCAN message RAM exceeds SRAMCAN");
 _Static_assert((FDCAN_RAM_END_OFFSET & 3) == 0, "FDCAN message RAM must be word aligned");
 #if SC_BOARD_CAN_COUNT == 1
 _Static_assert(MCAN_HW_RX_FIFO_SIZE == 64, "Single-FDCAN RX FIFO must contain 64 elements");
+_Static_assert(MCAN_HW_TX_FIFO_SIZE == 32, "Single-FDCAN TX and TX event FIFOs must contain 32 elements");
 _Static_assert(FDCAN_RAM_END_OFFSET == 0x1c00, "Unexpected single-FDCAN message RAM layout");
-#else
+#elif SC_BOARD_CAN_COUNT == 2
 _Static_assert(MCAN_HW_RX_FIFO_SIZE == 32, "Dual-FDCAN RX FIFOs must contain 32 elements");
+_Static_assert(MCAN_HW_TX_FIFO_SIZE == 32, "Dual-FDCAN TX and TX event FIFOs must contain 32 elements");
 _Static_assert(FDCAN2_RX_FIFO_OFFSET == FDCAN1_RAM_END_OFFSET, "FDCAN message RAM regions must be contiguous");
 _Static_assert(FDCAN_RAM_END_OFFSET == 0x2600, "Unexpected dual-FDCAN message RAM layout");
 _Static_assert(((FDCAN1_RX_FIFO_OFFSET | FDCAN1_TX_FIFO_OFFSET | FDCAN1_TXE_FIFO_OFFSET
 	| FDCAN2_RX_FIFO_OFFSET | FDCAN2_TX_FIFO_OFFSET | FDCAN2_TXE_FIFO_OFFSET
+	| FDCAN_RAM_END_OFFSET) & 3) == 0, "FDCAN message RAM sections must be word aligned");
+#else
+_Static_assert(MCAN_HW_RX_FIFO_SIZE == 32, "Triple-FDCAN RX FIFOs must contain 32 elements");
+_Static_assert(MCAN_HW_TX_FIFO_SIZE == 12, "Triple-FDCAN TX and TX event FIFOs must contain 12 elements");
+_Static_assert(FDCAN2_RX_FIFO_OFFSET == FDCAN1_RAM_END_OFFSET,
+	"FDCAN1 and FDCAN2 message RAM regions must be contiguous");
+_Static_assert(FDCAN3_RX_FIFO_OFFSET == FDCAN2_RAM_END_OFFSET,
+	"FDCAN2 and FDCAN3 message RAM regions must be contiguous");
+_Static_assert(FDCAN1_RAM_END_OFFSET == 0x0cc0, "Unexpected FDCAN1 message RAM layout");
+_Static_assert(FDCAN2_RAM_END_OFFSET == 0x1980, "Unexpected FDCAN2 message RAM layout");
+_Static_assert(FDCAN_RAM_END_OFFSET == 0x2640, "Unexpected triple-FDCAN message RAM layout");
+_Static_assert(((FDCAN1_RX_FIFO_OFFSET | FDCAN1_TX_FIFO_OFFSET | FDCAN1_TXE_FIFO_OFFSET
+	| FDCAN2_RX_FIFO_OFFSET | FDCAN2_TX_FIFO_OFFSET | FDCAN2_TXE_FIFO_OFFSET
+	| FDCAN3_RX_FIFO_OFFSET | FDCAN3_TX_FIFO_OFFSET | FDCAN3_TXE_FIFO_OFFSET
 	| FDCAN_RAM_END_OFFSET) & 3) == 0, "FDCAN message RAM sections must be word aligned");
 #endif
 #endif
@@ -227,6 +250,17 @@ static const struct fdcan_channel_config fdcan_channels[] = {
 		.led_status_red = SC_BOARD_LED_COUNT,
 	},
 #endif
+#if STM32H725ZGT6 && SC_BOARD_CAN_COUNT > 2
+	{
+		.m_can = (MCanX *)FDCAN3,
+		.interrupt_id = FDCAN3_IT0_IRQn,
+		.rx_fifo_offset = FDCAN3_RX_FIFO_OFFSET,
+		.tx_fifo_offset = FDCAN3_TX_FIFO_OFFSET,
+		.txe_fifo_offset = FDCAN3_TXE_FIFO_OFFSET,
+		.led_status_green = SC_BOARD_LED_COUNT,
+		.led_status_red = SC_BOARD_LED_COUNT,
+	},
+#endif
 };
 
 _Static_assert(TU_ARRAY_SIZE(fdcan_channels) == SC_BOARD_CAN_COUNT,
@@ -235,18 +269,24 @@ _Static_assert(TU_ARRAY_SIZE(fdcan_channels) == SC_BOARD_CAN_COUNT,
 // controller and hardware specific setup of i/o pins for CAN
 static void can_init(void)
 {
-	/* All selected FDCAN GPIO signals use alternate function 9. */
 	const uint32_t gpio_af_fdcan1 = GPIO_AF9_FDCAN1;
 
 #if STM32H725ZGT6
 	/* DS13311, STM32H725ZGT6 LQFP144:
 	 *   FDCAN1_RX PB8 (pin 136), FDCAN1_TX PB9 (pin 137)
-	 *   FDCAN2_RX PB5 (pin 132), FDCAN2_TX PB6 (pin 133), when enabled. */
+	 *   FDCAN2_RX PB5 (pin 132), FDCAN2_TX PB6 (pin 133), when enabled
+	 *   FDCAN3_RX PF6 (pin 20), FDCAN3_TX PF7 (pin 21), when enabled. */
 #if SC_BOARD_CAN_COUNT > 1
 	const uint32_t gpio_af_fdcan2 = GPIO_AF9_FDCAN2;
 #endif
+#if SC_BOARD_CAN_COUNT > 2
+	const uint32_t gpio_af_fdcan3 = GPIO_AF2_FDCAN3;
+#endif
 
 	RCC->AHB4ENR |= RCC_AHB4ENR_GPIOBEN;
+#if SC_BOARD_CAN_COUNT > 2
+	RCC->AHB4ENR |= RCC_AHB4ENR_GPIOFEN;
+#endif
 
 #if SC_BOARD_CAN_COUNT > 1
 	GPIOB->AFR[0] =
@@ -270,6 +310,17 @@ static void can_init(void)
 		(GPIOB->MODER & ~(GPIO_MODER_MODE5 | GPIO_MODER_MODE6))
 		| (GPIO_MODE_AF_PP << GPIO_MODER_MODE5_Pos)
 		| (GPIO_MODE_AF_PP << GPIO_MODER_MODE6_Pos);
+#endif
+#if SC_BOARD_CAN_COUNT > 2
+	GPIOF->AFR[0] =
+		(GPIOF->AFR[0] & ~(GPIO_AFRL_AFSEL6 | GPIO_AFRL_AFSEL7))
+		| (gpio_af_fdcan3 << GPIO_AFRL_AFSEL6_Pos)
+		| (gpio_af_fdcan3 << GPIO_AFRL_AFSEL7_Pos);
+
+	GPIOF->MODER =
+		(GPIOF->MODER & ~(GPIO_MODER_MODE6 | GPIO_MODER_MODE7))
+		| (GPIO_MODE_AF_PP << GPIO_MODER_MODE6_Pos)
+		| (GPIO_MODE_AF_PP << GPIO_MODER_MODE7_Pos);
 #endif
 #else
 	/* NUCLEO-H7A3ZI-Q: FDCAN1_RX PD0 and FDCAN1_TX PD1. */
@@ -597,6 +648,15 @@ SC_RAMFUNC void FDCAN2_IT0_IRQHandler(void)
 	// LOG("FDCAN2_IT0 int\n");
 
 	mcan_can_int(1);
+}
+#endif
+
+#if STM32H725ZGT6 && SC_BOARD_CAN_COUNT > 2
+SC_RAMFUNC void FDCAN3_IT0_IRQHandler(void)
+{
+	// LOG("FDCAN3_IT0 int\n");
+
+	mcan_can_int(2);
 }
 #endif
 

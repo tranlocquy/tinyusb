@@ -38,6 +38,10 @@ extern "C" {
 #define SC_M1_EP_CMD1_BULK_IN   (0x80 | SC_M1_EP_CMD1_BULK_OUT)
 #define SC_M1_EP_MSG1_BULK_OUT  0x04
 #define SC_M1_EP_MSG1_BULK_IN   (0x80 | SC_M1_EP_MSG1_BULK_OUT)
+#define SC_M1_EP_CMD2_BULK_OUT  0x05
+#define SC_M1_EP_CMD2_BULK_IN   (0x80 | SC_M1_EP_CMD2_BULK_OUT)
+#define SC_M1_EP_MSG2_BULK_OUT  0x06
+#define SC_M1_EP_MSG2_BULK_IN   (0x80 | SC_M1_EP_MSG2_BULK_OUT)
 
 
 #ifdef __cplusplus

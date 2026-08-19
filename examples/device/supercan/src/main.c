@@ -997,6 +997,10 @@ int main(void)
 	usb.cmd[1].pipe = SC_M1_EP_CMD1_BULK_OUT;
 	usb.can[1].pipe = SC_M1_EP_MSG1_BULK_OUT;
 #endif
+#if SC_BOARD_CAN_COUNT > 2
+	usb.cmd[2].pipe = SC_M1_EP_CMD2_BULK_OUT;
+	usb.can[2].pipe = SC_M1_EP_MSG2_BULK_OUT;
+#endif
 
 	for (unsigned i = 0; i < SC_BOARD_CAN_COUNT; ++i) {
 		struct can *can = &cans[i];
@@ -1294,6 +1298,20 @@ SC_RAMFUNC static bool sc_usb_xfer_cb(uint8_t rhport, uint8_t ep_addr, xfer_resu
 		break;
 	case SC_M1_EP_MSG1_BULK_IN:
 		sc_can_bulk_in(1);
+		break;
+#endif
+#if SC_BOARD_CAN_COUNT > 2
+	case SC_M1_EP_CMD2_BULK_OUT:
+		sc_cmd_bulk_out(2, xferred_bytes);
+		break;
+	case SC_M1_EP_CMD2_BULK_IN:
+		sc_cmd_bulk_in(2);
+		break;
+	case SC_M1_EP_MSG2_BULK_OUT:
+		sc_can_bulk_out(2, xferred_bytes);
+		break;
+	case SC_M1_EP_MSG2_BULK_IN:
+		sc_can_bulk_in(2);
 		break;
 #endif
 	default:

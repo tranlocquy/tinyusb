@@ -11,8 +11,8 @@
 #ifndef STM32H725_FDCAN_COUNT
 	#define STM32H725_FDCAN_COUNT 2
 #endif
-#if STM32H725_FDCAN_COUNT != 1 && STM32H725_FDCAN_COUNT != 2
-	#error STM32H725_FDCAN_COUNT must be 1 or 2
+#if STM32H725_FDCAN_COUNT != 1 && STM32H725_FDCAN_COUNT != 2 && STM32H725_FDCAN_COUNT != 3
+	#error STM32H725_FDCAN_COUNT must be 1, 2, or 3
 #endif
 
 #define SC_BOARD_CAN_COUNT STM32H725_FDCAN_COUNT
@@ -43,7 +43,11 @@ SC_RAMFUNC extern void sc_board_led_can_status_set(uint8_t index, int status);
 #else
 	#define MCAN_HW_RX_FIFO_SIZE 32
 #endif
-#define MCAN_HW_TX_FIFO_SIZE 32
+#if SC_BOARD_CAN_COUNT == 3
+	#define MCAN_HW_TX_FIFO_SIZE 12
+#else
+	#define MCAN_HW_TX_FIFO_SIZE 32
+#endif
 
 #include <supercan_mcan.h>
 #include <supercan_stm32h7_fdcan.h>

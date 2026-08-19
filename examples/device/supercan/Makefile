@@ -73,7 +73,9 @@ ifeq ($(BOARD),stm32h725zgt6)
 STM32H725_FDCAN_COUNT ?= 2
 ifneq ($(STM32H725_FDCAN_COUNT),1)
 ifneq ($(STM32H725_FDCAN_COUNT),2)
-$(error STM32H725_FDCAN_COUNT must be 1 or 2)
+ifneq ($(STM32H725_FDCAN_COUNT),3)
+$(error STM32H725_FDCAN_COUNT must be 1, 2, or 3)
+endif
 endif
 endif
 
@@ -82,11 +84,14 @@ CFLAGS += $(SECTION_CFLAGS) -DSTM32H725ZGT6 \
 	-DSTM32H725_FDCAN_COUNT=$(STM32H725_FDCAN_COUNT) \
 	-DHAVE_ATOMIC_COMPARE_EXCHANGE=1
 
-# Keep the single- and dual-channel objects separate. GNU make does not track
-# command-line flag changes as dependencies, so sharing a build directory can
-# otherwise reuse objects compiled for the other channel count.
+# Keep objects built with non-default channel counts separate. GNU make does
+# not track command-line flag changes as dependencies, so sharing a build
+# directory can otherwise reuse objects compiled for another channel count.
 ifeq ($(STM32H725_FDCAN_COUNT),1)
 BUILD := _build/$(BOARD)-fdcan1
+endif
+ifeq ($(STM32H725_FDCAN_COUNT),3)
+BUILD := _build/$(BOARD)-fdcan3
 endif
 endif
 
