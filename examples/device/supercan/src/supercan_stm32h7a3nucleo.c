@@ -599,6 +599,14 @@ extern void sc_board_led_set(uint8_t index, bool on)
 {
 	SC_DEBUG_ASSERT(index < TU_ARRAY_SIZE(leds));
 
+#if STM32H735ZGT6
+	// PE2 is the H735 main-reached indicator. Existing startup, USB, and CAN
+	// traffic commands may target LED 0, but they must not extinguish it.
+	if (index == SC_BOARD_DEBUG_DEFAULT) {
+		on = true;
+	}
+#endif
+
 	unsigned mux = leds[index].port_pin_mux;
 	unsigned port = mux >> PORT_SHIFT;
 	unsigned pin = mux & PIN_MASK;
@@ -634,7 +642,11 @@ extern void sc_board_init_begin(void)
 
 extern void sc_board_init_end(void)
 {
+#if STM32H735ZGT6
+	led_set(SC_BOARD_DEBUG_DEFAULT, true);
+#else
 	led_blink(0, 2000);
+#endif
 	NVIC_SetPriorityGrouping(NVIC_PRIORITYGROUP_4);
 }
 

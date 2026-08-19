@@ -979,6 +979,11 @@ int main(void)
 {
 	// no uart here :(
 	sc_board_init_begin();
+#if STM32H735ZGT6
+	// PE2 is a steady indication that board initialization completed and
+	// SuperCAN reached main().
+	sc_board_led_set(SC_BOARD_DEBUG_DEFAULT, true);
+#endif
 	LOG("sc_board_init_begin\n");
 
 	LOG("led_init\n");
