@@ -8,7 +8,14 @@
 
 #define SC_BOARD_USB_BCD_DEVICE (HWREV << 8)
 #define SC_BOARD_USB_MANUFACTURER_STRING "STMicroelectronics"
-#define SC_BOARD_CAN_COUNT 2
+#ifndef STM32H725_FDCAN_COUNT
+	#define STM32H725_FDCAN_COUNT 2
+#endif
+#if STM32H725_FDCAN_COUNT != 1 && STM32H725_FDCAN_COUNT != 2
+	#error STM32H725_FDCAN_COUNT must be 1 or 2
+#endif
+
+#define SC_BOARD_CAN_COUNT STM32H725_FDCAN_COUNT
 #define SC_BOARD_NAME "STM32H725ZGT6"
 #define SC_BOARD_CAN_CLK_HZ 60000000
 
@@ -31,7 +38,11 @@ SC_RAMFUNC extern void sc_board_led_can_status_set(uint8_t index, int status);
 #define SUPERCAN_MCAN 1
 #define MCAN_MESSAGE_RAM_CONFIGURABLE 0
 #define MCAN_ENABLE_EDGE_FILTERING 0 /* STM32H725 errata ES0491 section 2.22.1 */
-#define MCAN_HW_RX_FIFO_SIZE 32
+#if SC_BOARD_CAN_COUNT == 1
+	#define MCAN_HW_RX_FIFO_SIZE 64
+#else
+	#define MCAN_HW_RX_FIFO_SIZE 32
+#endif
 #define MCAN_HW_TX_FIFO_SIZE 32
 
 #include <supercan_mcan.h>

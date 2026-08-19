@@ -336,7 +336,13 @@ for board in $boards; do
 	mkdir -p $target_dir/supercan/$BOARD
 
 	rm -rf _build
-	make $MAKE_ARGS
+	if [ "$BOARD" = "stm32h725zgt6" ]; then
+		# Release artifacts remain the default dual-channel configuration even
+		# when the caller has an inherited STM32H725_FDCAN_COUNT environment value.
+		make $MAKE_ARGS STM32H725_FDCAN_COUNT=2
+	else
+		make $MAKE_ARGS
+	fi
 
 	cp _build/$BOARD/${project}.hex $target_dir/supercan/$BOARD/
 	cp _build/$BOARD/${project}.bin $target_dir/supercan/$BOARD/

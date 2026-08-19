@@ -70,8 +70,24 @@ CFLAGS += $(SECTION_CFLAGS) -DSTM32H7A3NUCLEO -DHAVE_ATOMIC_COMPARE_EXCHANGE=1
 endif
 
 ifeq ($(BOARD),stm32h725zgt6)
+STM32H725_FDCAN_COUNT ?= 2
+ifneq ($(STM32H725_FDCAN_COUNT),1)
+ifneq ($(STM32H725_FDCAN_COUNT),2)
+$(error STM32H725_FDCAN_COUNT must be 1 or 2)
+endif
+endif
+
 INC += $(TOP)/examples/device/superdfu/inc
-CFLAGS += $(SECTION_CFLAGS) -DSTM32H725ZGT6 -DHAVE_ATOMIC_COMPARE_EXCHANGE=1
+CFLAGS += $(SECTION_CFLAGS) -DSTM32H725ZGT6 \
+	-DSTM32H725_FDCAN_COUNT=$(STM32H725_FDCAN_COUNT) \
+	-DHAVE_ATOMIC_COMPARE_EXCHANGE=1
+
+# Keep the single- and dual-channel objects separate. GNU make does not track
+# command-line flag changes as dependencies, so sharing a build directory can
+# otherwise reuse objects compiled for the other channel count.
+ifeq ($(STM32H725_FDCAN_COUNT),1)
+BUILD := _build/$(BOARD)-fdcan1
+endif
 endif
 
 ifeq ($(BOARD),d5035_04)

@@ -163,24 +163,36 @@ enum {
 	FDCAN1_TXE_FIFO_OFFSET = FDCAN1_TX_FIFO_OFFSET + FDCAN_TX_FIFO_BYTES,
 	FDCAN1_RAM_END_OFFSET = FDCAN1_TXE_FIFO_OFFSET + FDCAN_TXE_FIFO_BYTES,
 #if STM32H725ZGT6
+	STM32H725_SRAMCAN_BYTES = 0x2800,
+#endif
+#if STM32H725ZGT6 && SC_BOARD_CAN_COUNT > 1
 	FDCAN2_RX_FIFO_OFFSET = FDCAN1_RAM_END_OFFSET,
 	FDCAN2_TX_FIFO_OFFSET = FDCAN2_RX_FIFO_OFFSET + FDCAN_RX_FIFO_BYTES,
 	FDCAN2_TXE_FIFO_OFFSET = FDCAN2_TX_FIFO_OFFSET + FDCAN_TX_FIFO_BYTES,
 	FDCAN2_RAM_END_OFFSET = FDCAN2_TXE_FIFO_OFFSET + FDCAN_TXE_FIFO_BYTES,
-	STM32H725_SRAMCAN_BYTES = 0x2800,
+	FDCAN_RAM_END_OFFSET = FDCAN2_RAM_END_OFFSET,
+#else
+	FDCAN_RAM_END_OFFSET = FDCAN1_RAM_END_OFFSET,
 #endif
 };
 
 #if STM32H725ZGT6
-_Static_assert(SC_BOARD_CAN_COUNT == 2, "STM32H725ZGT6 requires two CAN channels");
-_Static_assert(MCAN_HW_RX_FIFO_SIZE == 32, "STM32H725ZGT6 RX FIFO must contain 32 elements");
+_Static_assert(SC_BOARD_CAN_COUNT == 1 || SC_BOARD_CAN_COUNT == 2,
+	"STM32H725ZGT6 requires one or two CAN channels");
 _Static_assert(MCAN_HW_TX_FIFO_SIZE == 32, "STM32H725ZGT6 TX and TX event FIFOs must contain 32 elements");
+_Static_assert(FDCAN_RAM_END_OFFSET <= STM32H725_SRAMCAN_BYTES, "FDCAN message RAM exceeds SRAMCAN");
+_Static_assert((FDCAN_RAM_END_OFFSET & 3) == 0, "FDCAN message RAM must be word aligned");
+#if SC_BOARD_CAN_COUNT == 1
+_Static_assert(MCAN_HW_RX_FIFO_SIZE == 64, "Single-FDCAN RX FIFO must contain 64 elements");
+_Static_assert(FDCAN_RAM_END_OFFSET == 0x1c00, "Unexpected single-FDCAN message RAM layout");
+#else
+_Static_assert(MCAN_HW_RX_FIFO_SIZE == 32, "Dual-FDCAN RX FIFOs must contain 32 elements");
 _Static_assert(FDCAN2_RX_FIFO_OFFSET == FDCAN1_RAM_END_OFFSET, "FDCAN message RAM regions must be contiguous");
-_Static_assert(FDCAN2_RAM_END_OFFSET == 0x2600, "Unexpected dual-FDCAN message RAM layout");
-_Static_assert(FDCAN2_RAM_END_OFFSET <= STM32H725_SRAMCAN_BYTES, "FDCAN message RAM exceeds SRAMCAN");
+_Static_assert(FDCAN_RAM_END_OFFSET == 0x2600, "Unexpected dual-FDCAN message RAM layout");
 _Static_assert(((FDCAN1_RX_FIFO_OFFSET | FDCAN1_TX_FIFO_OFFSET | FDCAN1_TXE_FIFO_OFFSET
 	| FDCAN2_RX_FIFO_OFFSET | FDCAN2_TX_FIFO_OFFSET | FDCAN2_TXE_FIFO_OFFSET
-	| FDCAN2_RAM_END_OFFSET) & 3) == 0, "FDCAN message RAM must be word aligned");
+	| FDCAN_RAM_END_OFFSET) & 3) == 0, "FDCAN message RAM sections must be word aligned");
+#endif
 #endif
 
 struct fdcan_channel_config {
@@ -203,7 +215,7 @@ static const struct fdcan_channel_config fdcan_channels[] = {
 		.led_status_green = LED_CAN0_STATUS_GREEN,
 		.led_status_red = LED_CAN0_STATUS_RED,
 	},
-#if STM32H725ZGT6
+#if STM32H725ZGT6 && SC_BOARD_CAN_COUNT > 1
 	{
 		.m_can = (MCanX *)FDCAN2,
 		.interrupt_id = FDCAN2_IT0_IRQn,
@@ -229,15 +241,19 @@ static void can_init(void)
 #if STM32H725ZGT6
 	/* DS13311, STM32H725ZGT6 LQFP144:
 	 *   FDCAN1_RX PB8 (pin 136), FDCAN1_TX PB9 (pin 137)
-	 *   FDCAN2_RX PB5 (pin 132), FDCAN2_TX PB6 (pin 133) */
+	 *   FDCAN2_RX PB5 (pin 132), FDCAN2_TX PB6 (pin 133), when enabled. */
+#if SC_BOARD_CAN_COUNT > 1
 	const uint32_t gpio_af_fdcan2 = GPIO_AF9_FDCAN2;
+#endif
 
 	RCC->AHB4ENR |= RCC_AHB4ENR_GPIOBEN;
 
+#if SC_BOARD_CAN_COUNT > 1
 	GPIOB->AFR[0] =
 		(GPIOB->AFR[0] & ~(GPIO_AFRL_AFSEL5 | GPIO_AFRL_AFSEL6))
 		| (gpio_af_fdcan2 << GPIO_AFRL_AFSEL5_Pos)
 		| (gpio_af_fdcan2 << GPIO_AFRL_AFSEL6_Pos);
+#endif
 
 	GPIOB->AFR[1] =
 		(GPIOB->AFR[1] & ~(GPIO_AFRH_AFSEL8 | GPIO_AFRH_AFSEL9))
@@ -245,12 +261,16 @@ static void can_init(void)
 		| (gpio_af_fdcan1 << GPIO_AFRH_AFSEL9_Pos);
 
 	GPIOB->MODER =
-		(GPIOB->MODER & ~(GPIO_MODER_MODE5 | GPIO_MODER_MODE6
-			| GPIO_MODER_MODE8 | GPIO_MODER_MODE9))
-		| (GPIO_MODE_AF_PP << GPIO_MODER_MODE5_Pos)
-		| (GPIO_MODE_AF_PP << GPIO_MODER_MODE6_Pos)
+		(GPIOB->MODER & ~(GPIO_MODER_MODE8 | GPIO_MODER_MODE9))
 		| (GPIO_MODE_AF_PP << GPIO_MODER_MODE8_Pos)
 		| (GPIO_MODE_AF_PP << GPIO_MODER_MODE9_Pos);
+
+#if SC_BOARD_CAN_COUNT > 1
+	GPIOB->MODER =
+		(GPIOB->MODER & ~(GPIO_MODER_MODE5 | GPIO_MODER_MODE6))
+		| (GPIO_MODE_AF_PP << GPIO_MODER_MODE5_Pos)
+		| (GPIO_MODE_AF_PP << GPIO_MODER_MODE6_Pos);
+#endif
 #else
 	/* NUCLEO-H7A3ZI-Q: FDCAN1_RX PD0 and FDCAN1_TX PD1. */
 	RCC->AHB4ENR |= RCC_AHB4ENR_GPIODEN;
@@ -338,16 +358,16 @@ static void can_init(void)
 
 #if STM32H725ZGT6
 	/* AN5348 requires every allocated FDCAN message-RAM word to be
-	 * initialized before use. Both controllers are held in INIT here. */
+	 * initialized before use. All selected controllers are held in INIT here. */
 	volatile uint32_t *message_ram = (volatile uint32_t *)SRAMCAN_BASE;
-	for (size_t i = 0; i < FDCAN2_RAM_END_OFFSET / sizeof(*message_ram); ++i) {
+	for (size_t i = 0; i < FDCAN_RAM_END_OFFSET / sizeof(*message_ram); ++i) {
 		message_ram[i] = 0;
 	}
 	__DSB();
 #endif
 
 	// Setup shared clock calibration unit (CCU) for bypass.
-	// All FDCAN instances must have INIT and CCE set while it is changed.
+	// FDCAN1 owns the CCU write protection and is in INIT/CCE here.
 	FDCAN_CCU->CCFG = FDCANCCU_CCFG_SWR;
 	FDCAN_CCU->CCFG = FDCANCCU_CCFG_BCC;
 	LOG("CCU CCFG=%08lx\n", FDCAN_CCU->CCFG);
@@ -571,7 +591,7 @@ SC_RAMFUNC void FDCAN1_IT0_IRQHandler(void)
 	mcan_can_int(0);
 }
 
-#if STM32H725ZGT6
+#if STM32H725ZGT6 && SC_BOARD_CAN_COUNT > 1
 SC_RAMFUNC void FDCAN2_IT0_IRQHandler(void)
 {
 	// LOG("FDCAN2_IT0 int\n");
