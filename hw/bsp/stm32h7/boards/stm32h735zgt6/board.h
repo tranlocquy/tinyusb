@@ -7,7 +7,16 @@
 extern "C" {
 #endif
 
-/* Keep the custom-board-only pins at their reset state in the generic BSP. */
+/*
+ * The generic TinyUSB BSP must not claim the custom-board UI or UART pins.
+ * In particular, it leaves the legacy PE1 LED mapping below unconfigured.
+ *
+ * The SuperCAN application exclusively owns its three active-low, open-drain
+ * LED GPIOs: PE2 (LQFP144 lead 1), PE3 (lead 2), and PE4 (lead 3). GPIO output
+ * mode does not select their optional TRACECLK/TRACED0/TRACED1 alternate
+ * functions; ordinary SWD remains independent, but parallel trace cannot
+ * share them.
+ */
 #define BOARD_BSP_LED_ENABLED     0
 #define BOARD_BSP_BUTTON_ENABLED  0
 #define BOARD_BSP_UART_ENABLED    0

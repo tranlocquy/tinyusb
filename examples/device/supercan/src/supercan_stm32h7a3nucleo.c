@@ -42,11 +42,15 @@
 // per RCC generation below.
 
 
-#if !STM32H735ZGT6
 #define PORT_SHIFT 4
 #define PIN_MASK 15
 #define MAKE_PIN(port, pin) (((port) << PORT_SHIFT) | (pin))
 
+#if STM32H735ZGT6
+#define PIN_PE02 MAKE_PIN(4, 2)
+#define PIN_PE03 MAKE_PIN(4, 3)
+#define PIN_PE04 MAKE_PIN(4, 4)
+#else
 #define PIN_PB00 MAKE_PIN(1, 0)
 #define PIN_PB14 MAKE_PIN(1, 14)
 
@@ -268,14 +272,8 @@ static const struct fdcan_channel_config fdcan_channels[] = {
 		.rx_fifo_offset = FDCAN1_RX_FIFO_OFFSET,
 		.tx_fifo_offset = FDCAN1_TX_FIFO_OFFSET,
 		.txe_fifo_offset = FDCAN1_TXE_FIFO_OFFSET,
-#if STM32H735ZGT6
-		// The H735 target does not drive direct GPIO status LEDs.
-		.led_status_green = SC_BOARD_LED_COUNT,
-		.led_status_red = SC_BOARD_LED_COUNT,
-#else
 		.led_status_green = LED_CAN0_STATUS_GREEN,
 		.led_status_red = LED_CAN0_STATUS_RED,
-#endif
 	},
 #if STM32H7X5_SUPERCAN && SC_BOARD_CAN_COUNT > 1
 	{
@@ -530,7 +528,6 @@ static inline void counter_1mhz_init(void)
 		| TIM_CR1_CEN;
 }
 
-#if !STM32H735ZGT6
 struct led {
 	uint8_t port_pin_mux;
 };
@@ -540,15 +537,36 @@ struct led {
 
 
 static const struct led leds[] = {
+#if STM32H735ZGT6
+	LED_STATIC_INITIALIZER("debug", PIN_PE02), // blue
+	LED_STATIC_INITIALIZER("can0_green", PIN_PE03), // green
+	LED_STATIC_INITIALIZER("can0_red", PIN_PE04), // red
+#else
 	LED_STATIC_INITIALIZER("debug", PIN_PE01), // yellow
 	LED_STATIC_INITIALIZER("can0_green", PIN_PB00), // green
 	LED_STATIC_INITIALIZER("can0_red", PIN_PB14), // red
-};
 #endif
+};
 
 static inline void leds_init(void)
 {
-#if !STM32H735ZGT6
+#if STM32H735ZGT6
+	// Active-low open-drain LEDs: preload the output latch high (off) before
+	// changing the pins from their reset state to GPIO outputs.
+	RCC->AHB4ENR |= RCC_AHB4ENR_GPIOEEN;
+	(void)RCC->AHB4ENR;
+	__DSB();
+	GPIOE->BSRR = GPIO_BSRR_BS2 | GPIO_BSRR_BS3 | GPIO_BSRR_BS4;
+	GPIOE->OTYPER |= GPIO_OTYPER_OT2 | GPIO_OTYPER_OT3 | GPIO_OTYPER_OT4;
+	GPIOE->PUPDR &= ~(GPIO_PUPDR_PUPD2 | GPIO_PUPDR_PUPD3 | GPIO_PUPDR_PUPD4);
+	GPIOE->OSPEEDR &=
+		~(GPIO_OSPEEDR_OSPEED2 | GPIO_OSPEEDR_OSPEED3 | GPIO_OSPEEDR_OSPEED4);
+	GPIOE->MODER =
+		(GPIOE->MODER & ~(GPIO_MODER_MODE2 | GPIO_MODER_MODE3 | GPIO_MODER_MODE4))
+		| (GPIO_MODE_OUTPUT_PP << GPIO_MODER_MODE2_Pos)
+		| (GPIO_MODE_OUTPUT_PP << GPIO_MODER_MODE3_Pos)
+		| (GPIO_MODE_OUTPUT_PP << GPIO_MODER_MODE4_Pos);
+#else
 	// enable clock to GPIO block B, E
 	RCC->AHB4ENR |= RCC_AHB4ENR_GPIOBEN | RCC_AHB4ENR_GPIOEEN;
 
@@ -579,10 +597,6 @@ static inline void leds_init(void)
 
 extern void sc_board_led_set(uint8_t index, bool on)
 {
-#if STM32H735ZGT6
-	(void)index;
-	(void)on;
-#else
 	SC_DEBUG_ASSERT(index < TU_ARRAY_SIZE(leds));
 
 	unsigned mux = leds[index].port_pin_mux;
@@ -591,17 +605,19 @@ extern void sc_board_led_set(uint8_t index, bool on)
 
 	GPIO_TypeDef *gpio = (GPIO_TypeDef *)(GPIOA_BASE + (0x00000400UL * port));
 
+#if STM32H735ZGT6
+	// Active-low: reset drives the open-drain output low (on), set releases it (off).
+	gpio->BSRR = UINT32_C(1) << (pin + on * 16);
+#else
 	gpio->BSRR = UINT32_C(1) << (pin + (!on) * 16);
 #endif
 }
 
 extern void sc_board_leds_on_unsafe(void)
 {
-#if !STM32H735ZGT6
 	for (size_t i = 0; i < TU_ARRAY_SIZE(leds); ++i) {
 		sc_board_led_set(i, 1);
 	}
-#endif
 }
 
 
@@ -618,18 +634,12 @@ extern void sc_board_init_begin(void)
 
 extern void sc_board_init_end(void)
 {
-#if !STM32H735ZGT6
 	led_blink(0, 2000);
-#endif
 	NVIC_SetPriorityGrouping(NVIC_PRIORITYGROUP_4);
 }
 
 SC_RAMFUNC extern void sc_board_led_can_status_set(uint8_t index, int status)
 {
-#if STM32H735ZGT6
-	(void)index;
-	(void)status;
-#else
 	SC_DEBUG_ASSERT(index < TU_ARRAY_SIZE(mcan_cans));
 	if (index >= TU_ARRAY_SIZE(mcan_cans)) {
 		return;
@@ -677,7 +687,6 @@ SC_RAMFUNC extern void sc_board_led_can_status_set(uint8_t index, int status)
 		led_blink(can->led_status_red, SC_CAN_LED_BLINK_DELAY_ACTIVE_MS / 2);
 		break;
 	}
-#endif
 }
 
 __attribute__((noreturn)) extern void sc_board_reset(void)
