@@ -337,9 +337,9 @@ for board in $boards; do
 
 	rm -rf _build
 	if [ "$BOARD" = "stm32h725zgt6" ]; then
-		# Release artifacts remain the default dual-channel configuration even
-		# when the caller has an inherited STM32H725_FDCAN_COUNT environment value.
-		make $MAKE_ARGS STM32H725_FDCAN_COUNT=2
+		# Release artifacts remain the default dual-channel, internal-HSI
+		# configuration even when the caller has inherited H725 build options.
+		make $MAKE_ARGS STM32H725_FDCAN_COUNT=2 STM32H725_USE_HSE=0
 	else
 		make $MAKE_ARGS
 	fi

@@ -37,6 +37,18 @@ extern "C" {
 #define GPIO_AF10_OTG2_HS                    GPIO_AF10_OTG1_HS
 #define __HAL_RCC_USB2_OTG_FS_CLK_ENABLE     __HAL_RCC_USB1_OTG_HS_CLK_ENABLE
 
+#ifndef STM32H725_USE_HSE
+#define STM32H725_USE_HSE 0
+#endif
+
+#if STM32H725_USE_HSE != 0 && STM32H725_USE_HSE != 1
+#error STM32H725_USE_HSE must be exactly 0 or 1
+#endif
+
+#if STM32H725_USE_HSE && HSE_VALUE != 25000000
+#error STM32H725_USE_HSE requires a 25 MHz HSE_VALUE
+#endif
+
 //--------------------------------------------------------------------+
 // RCC Clock
 //--------------------------------------------------------------------+
@@ -64,6 +76,26 @@ static inline void board_stm32h7_clock_init(void)
   __HAL_PWR_VOLTAGESCALING_CONFIG(PWR_REGULATOR_VOLTAGE_SCALE2);
   while (!__HAL_PWR_GET_FLAG(PWR_FLAG_VOSRDY)) {}
 
+#if STM32H725_USE_HSE
+  /*
+   * Crystal mode: HSE25 / 5 = 5 MHz PLL input, * 48 = 240 MHz VCO,
+   * / 2 = 120 MHz PLL1 P output (SYSCLK). HSI48 remains the USB source.
+   * RCC_HSE_ON selects a crystal/resonator; RCC_HSE_BYPASS is not used.
+   */
+  osc.OscillatorType = RCC_OSCILLATORTYPE_HSE | RCC_OSCILLATORTYPE_HSI48;
+  osc.HSEState = RCC_HSE_ON;
+  osc.HSI48State = RCC_HSI48_ON;
+  osc.PLL.PLLState = RCC_PLL_ON;
+  osc.PLL.PLLSource = RCC_PLLSOURCE_HSE;
+  osc.PLL.PLLM = 5;
+  osc.PLL.PLLN = 48;
+  osc.PLL.PLLP = 2;
+  osc.PLL.PLLQ = 5;
+  osc.PLL.PLLR = 2;
+  osc.PLL.PLLRGE = RCC_PLL1VCIRANGE_2;
+  osc.PLL.PLLVCOSEL = RCC_PLL1VCOWIDE;
+  osc.PLL.PLLFRACN = 0;
+#else
   /* HSI64 / 4 * 15 / 2 = 120 MHz PLL1 P output (SYSCLK). */
   osc.OscillatorType = RCC_OSCILLATORTYPE_HSI | RCC_OSCILLATORTYPE_HSI48;
   osc.HSIState = RCC_HSI_DIV1;
@@ -79,7 +111,13 @@ static inline void board_stm32h7_clock_init(void)
   osc.PLL.PLLRGE = RCC_PLL1VCIRANGE_3;
   osc.PLL.PLLVCOSEL = RCC_PLL1VCOWIDE;
   osc.PLL.PLLFRACN = 0;
+#endif
 
+  /*
+   * This runs before the BSP starts a tick source. A missing HSE can therefore
+   * remain in the HAL ready polling loop; HSE builds require a working crystal
+   * at reset. HAL-reported configuration failures use the trap below.
+   */
   if (HAL_RCC_OscConfig(&osc) != HAL_OK)
   {
     while (1) {}

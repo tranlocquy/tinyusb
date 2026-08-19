@@ -123,21 +123,35 @@ __attribute__((noreturn)) static void fdcan_clock_failed(void)
 
 static void fdcan_clock_init(void)
 {
-	// PLL2 shares PLLSRC with PLL1. The STM32H725ZGT6 BSP selects HSI64.
+	// PLL2 shares PLLSRC with PLL1, so it must use the oscillator selected by
+	// the STM32H725ZGT6 BSP for the system-clock PLL.
+#if STM32H725_USE_HSE
+	if (__HAL_RCC_GET_PLL_OSCSOURCE() != RCC_PLLSOURCE_HSE) {
+		fdcan_clock_failed();
+	}
+#else
 	if (__HAL_RCC_GET_PLL_OSCSOURCE() != RCC_PLLSOURCE_HSI) {
 		fdcan_clock_failed();
 	}
+#endif
 
 	__HAL_RCC_PLL2_DISABLE();
 	if (!pll2_wait_ready(false)) {
 		fdcan_clock_failed();
 	}
 
-	// HSI64 / M4 * N15 / Q4 = 60 MHz. P and R are unused and kept at their
-	// lowest valid divider while only the Q output is enabled.
 	__HAL_RCC_PLL2CLKOUT_DISABLE(RCC_PLL2_DIVP | RCC_PLL2_DIVQ | RCC_PLL2_DIVR);
+#if STM32H725_USE_HSE
+	// HSE25 / M5 * N48 / Q4 = 60 MHz. The 5 MHz VCI is in range 2 and
+	// produces a legal 240 MHz wide VCO.
+	__HAL_RCC_PLL2_CONFIG(5, 48, 1, 4, 1);
+	__HAL_RCC_PLL2_VCIRANGE(RCC_PLL2VCIRANGE_2);
+#else
+	// HSI64 / M4 * N15 / Q4 = 60 MHz. The 16 MHz VCI is in range 3 and
+	// produces a legal 240 MHz wide VCO.
 	__HAL_RCC_PLL2_CONFIG(4, 15, 1, 4, 1);
 	__HAL_RCC_PLL2_VCIRANGE(RCC_PLL2VCIRANGE_3);
+#endif
 	__HAL_RCC_PLL2_VCORANGE(RCC_PLL2VCOWIDE);
 	__HAL_RCC_PLL2FRACN_DISABLE();
 	__HAL_RCC_PLL2FRACN_CONFIG(0);
@@ -339,7 +353,8 @@ static void can_init(void)
 		| (GPIO_MODE_AF_PP << GPIO_MODER_MODE1_Pos);
 #endif
 
-	// Configure the target-specific PLL2 FDCAN kernel clock from HSI64.
+	// Configure the target-specific PLL2 FDCAN kernel clock. The H725 path
+	// follows the BSP-selected PLL source; the H7A3 path uses HSI64 below.
 #if STM32H725ZGT6
 	fdcan_clock_init();
 #else

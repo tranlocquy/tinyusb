@@ -71,11 +71,17 @@ endif
 
 ifeq ($(BOARD),stm32h725zgt6)
 STM32H725_FDCAN_COUNT ?= 2
+STM32H725_USE_HSE ?= 0
 ifneq ($(STM32H725_FDCAN_COUNT),1)
 ifneq ($(STM32H725_FDCAN_COUNT),2)
 ifneq ($(STM32H725_FDCAN_COUNT),3)
 $(error STM32H725_FDCAN_COUNT must be 1, 2, or 3)
 endif
+endif
+endif
+ifneq ($(STM32H725_USE_HSE),0)
+ifneq ($(STM32H725_USE_HSE),1)
+$(error STM32H725_USE_HSE must be exactly 0 or 1)
 endif
 endif
 
@@ -92,6 +98,9 @@ BUILD := _build/$(BOARD)-fdcan1
 endif
 ifeq ($(STM32H725_FDCAN_COUNT),3)
 BUILD := _build/$(BOARD)-fdcan3
+endif
+ifeq ($(STM32H725_USE_HSE),1)
+BUILD := $(BUILD)-hse25
 endif
 endif
 
