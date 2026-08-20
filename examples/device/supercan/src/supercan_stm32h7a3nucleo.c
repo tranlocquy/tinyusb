@@ -548,15 +548,32 @@ static const struct led leds[] = {
 #endif
 };
 
-static inline void leds_init(void)
-{
 #if STM32H735ZGT6
-	// Active-low open-drain LEDs: preload the output latch high (off) before
-	// changing the pins from their reset state to GPIO outputs.
+extern void sc_board_debug_led_early_on(void)
+{
+	// main() calls this before board_init(). The reset clock is sufficient to
+	// access RCC/GPIO, so configure only PE2 and drive the active-low LED now.
 	RCC->AHB4ENR |= RCC_AHB4ENR_GPIOEEN;
 	(void)RCC->AHB4ENR;
 	__DSB();
-	GPIOE->BSRR = GPIO_BSRR_BS2 | GPIO_BSRR_BS3 | GPIO_BSRR_BS4;
+	GPIOE->OTYPER |= GPIO_OTYPER_OT2;
+	GPIOE->PUPDR &= ~GPIO_PUPDR_PUPD2;
+	GPIOE->OSPEEDR &= ~GPIO_OSPEEDR_OSPEED2;
+	GPIOE->BSRR = GPIO_BSRR_BR2;
+	GPIOE->MODER =
+		(GPIOE->MODER & ~GPIO_MODER_MODE2)
+		| (GPIO_MODE_OUTPUT_PP << GPIO_MODER_MODE2_Pos);
+}
+#endif
+
+static inline void leds_init(void)
+{
+#if STM32H735ZGT6
+	// Preserve the early blue LED state while initializing green and red off.
+	RCC->AHB4ENR |= RCC_AHB4ENR_GPIOEEN;
+	(void)RCC->AHB4ENR;
+	__DSB();
+	GPIOE->BSRR = GPIO_BSRR_BR2 | GPIO_BSRR_BS3 | GPIO_BSRR_BS4;
 	GPIOE->OTYPER |= GPIO_OTYPER_OT2 | GPIO_OTYPER_OT3 | GPIO_OTYPER_OT4;
 	GPIOE->PUPDR &= ~(GPIO_PUPDR_PUPD2 | GPIO_PUPDR_PUPD3 | GPIO_PUPDR_PUPD4);
 	GPIOE->OSPEEDR &=

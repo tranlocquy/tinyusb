@@ -26,6 +26,8 @@ enum {
 	SC_BOARD_LED_COUNT
 };
 
+extern void sc_board_debug_led_early_on(void);
+
 #define sc_board_led_usb_burst()
 #define sc_board_led_can_traffic_burst(index)
 SC_RAMFUNC extern void sc_board_led_can_status_set(uint8_t index, int status);

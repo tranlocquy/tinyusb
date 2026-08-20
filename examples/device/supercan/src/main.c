@@ -978,10 +978,14 @@ static inline void can_usb_disconnect(void)
 int main(void)
 {
 	// no uart here :(
+#if STM32H735ZGT6
+	// Turn on PE2 before board, clock, and FDCAN initialization so it marks the
+	// earliest board-specific execution in main().
+	sc_board_debug_led_early_on();
+#endif
 	sc_board_init_begin();
 #if STM32H735ZGT6
-	// PE2 is a steady indication that board initialization completed and
-	// SuperCAN reached main().
+	// Reassert the steady indicator after the normal board initialization.
 	sc_board_led_set(SC_BOARD_DEBUG_DEFAULT, true);
 #endif
 	LOG("sc_board_init_begin\n");
